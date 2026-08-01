@@ -16,7 +16,7 @@ dependencies = [
 nested-runner = "nested_runner.cli:app"
 
 [dependency-groups]
-dev = ["basedpyright>=1.39", "ruff>=0.16"]
+dev = ["basedpyright>=1.39", "ruff>=0.16", "yamllint>=1.38"]
 
 [build-system]
 requires = ["hatchling"]

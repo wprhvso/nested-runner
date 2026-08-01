@@ -7,7 +7,7 @@ permissions: {}
 
 jobs:
   test:
-    runs-on: [self-hosted, nested]
+    runs-on: [self-hosted]
     timeout-minutes: 5
 
     steps:

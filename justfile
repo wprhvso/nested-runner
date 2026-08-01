@@ -31,10 +31,25 @@ runners:
 config:
     ${EDITOR:-vi} "{{ config }}"
 
-qa:
+qa: qa-python qa-yaml qa-actions
+
+qa-python:
     uv run ruff format --check .
     uv run ruff check .
     uv run basedpyright
+
+qa-yaml:
+    uv run yamllint .github/workflows
+
+qa-actions:
+    #!/usr/bin/env bash
+    if ! command -v actionlint > /dev/null; then
+        echo "actionlint не найден — workflow не проверены"
+        echo "поставь его, чтобы qa был полным: https://github.com/rhysd/actionlint"
+        exit 0
+    fi
+    echo -e "\033[1mactionlint\033[0m"
+    actionlint
 
 fix:
     uv run ruff format .
