@@ -19,10 +19,13 @@ keys force="":
     unset pair
     echo "приватный — в секрет NESTED_KEY, публичный — в keys/nested.pub"
 
-test repo:
-    gh workflow run test.yml --repo {{ repo }}
+test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+    gh workflow run test.yml --repo "$repo"
     sleep 3
-    gh run watch --repo {{ repo }} --exit-status
+    gh run watch --repo "$repo" --exit-status
 
 qa: yamllint actionlint ruff basedpyright
 
