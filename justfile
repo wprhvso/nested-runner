@@ -20,13 +20,23 @@ status:
 run *args:
     uv run nested-runner run {{ args }}
 
+stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    gh run list --repo {{ repo }} --workflow runner.yml --status in_progress --json databaseId --jq '.[].databaseId' \
+        | xargs -r -n1 gh run cancel --repo {{ repo }}
+    gh run list --repo {{ repo }} --workflow runner.yml --status queued --json databaseId --jq '.[].databaseId' \
+        | xargs -r -n1 gh run cancel --repo {{ repo }}
+    gh api repos/{{ repo }}/actions/runners --jq '.runners[].id' \
+        | xargs -r -n1 -I{} gh api -X DELETE repos/{{ repo }}/actions/runners/{}
+
 test:
     gh workflow run test.yml --repo {{ repo }}
     sleep 3
     gh run watch --repo {{ repo }} --exit-status
 
 runners:
-    gh api repos/{{ repo }}/actions/runners --jq '.runners[] | "\(.name) \(.status) busy=\(.busy)"'
+    gh api repos/{{ repo }}/actions/runners --jq '.runners[].id as $id | "\(.name) \(.status) busy=\(.busy)"'
 
 qa: qa-python qa-yaml qa-actions
 
