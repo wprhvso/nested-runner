@@ -13,8 +13,9 @@ jobs:
     steps:
       - name: Where am I
         run: |
-          echo "runner name: $RUNNER_NAME"
-          echo "hostname:    $(hostname)"
+          echo "runner:   ${RUNNER_NAME}"
+          echo "os:       ${RUNNER_OS}"
+          echo "workdir:  ${PWD}"
           uname -a
 
       - name: Do something
