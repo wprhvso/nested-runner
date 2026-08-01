@@ -28,9 +28,6 @@ test:
 runners:
     gh api repos/{{ repo }}/actions/runners --jq '.runners[] | "\(.name) \(.status) busy=\(.busy)"'
 
-config:
-    ${EDITOR:-vi} "{{ config }}"
-
 qa: qa-python qa-yaml qa-actions
 
 qa-python:

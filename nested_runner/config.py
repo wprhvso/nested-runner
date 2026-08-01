@@ -73,24 +73,14 @@ class Config(BaseModel):
         return value
 
 
-def write_default(directory: Path) -> Path:
-    """Create a configuration file with nothing but poll_seconds in it."""
-    path = config_path(directory)
-    directory.mkdir(parents=True, exist_ok=True)
-    path.write_text(DEFAULT_CONFIG, encoding="utf-8")
-    return path
-
-
-def load(directory: Path) -> Config:
-    """Read and validate the configuration file."""
+def read(directory: Path) -> Config:
+    """Read the configuration, creating a default one if there is none."""
     path = config_path(directory)
 
     if not path.exists():
-        write_default(directory)
-        raise NestedRunnerError(
-            "конфига не было, создали новый",
-            hint=f"{path}\nдобавь туда блок [[repos]] со своим репозиторием",
-        )
+        directory.mkdir(parents=True, exist_ok=True)
+        path.write_text(DEFAULT_CONFIG, encoding="utf-8")
+        return Config()
 
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -100,7 +90,7 @@ def load(directory: Path) -> Config:
         raise NestedRunnerError(f"конфиг не открывается: {error}", hint=str(path)) from None
 
     try:
-        config = Config.model_validate(raw)
+        return Config.model_validate(raw)
     except ValidationError as error:
         problems = "\n".join(
             f"{'.'.join(str(part) for part in item['loc']) or 'config'}: {item['msg']}"
@@ -108,10 +98,15 @@ def load(directory: Path) -> Config:
         )
         raise NestedRunnerError(f"конфиг заполнен неверно:\n{problems}", hint=str(path)) from None
 
+
+def load(directory: Path) -> Config:
+    """Read the configuration and insist that it names at least one repository."""
+    config = read(directory)
+
     if not config.repos:
         raise NestedRunnerError(
             "ай-ай-ай, репозиториев-то нету вовсе",
-            hint=f'{path}\nдобавь блок:\n\n[[repos]]\nslug = "owner/name"\nwarm = 2',
+            hint=f'{config_path(directory)}\nдобавь блок:\n\n[[repos]]\nslug = "owner/name"\nwarm = 2',
         )
 
     return config

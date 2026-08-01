@@ -9,6 +9,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -34,9 +35,9 @@ def friendly[**P, R](command: Callable[P, R]) -> Callable[P, R]:
         try:
             return command(*args, **kwargs)
         except NestedRunnerError as error:
-            body = error.message
+            body = escape(error.message)
             if error.hint:
-                body += f"\n\n[dim]{error.hint}[/dim]"
+                body += f"\n\n[dim]{escape(error.hint)}[/dim]"
             console.print(Panel(body, title="[red]ошибка", border_style="red"))
             raise typer.Exit(1) from None
         except KeyboardInterrupt:
@@ -78,8 +79,8 @@ def _setup(ctx: typer.Context) -> tuple[config.Config, GitHub]:
 @app.command()
 @friendly
 def login(ctx: typer.Context) -> None:
-    """Save a personal access token and verify repository access."""
-    cfg = config.load(ctx.obj)
+    """Save a personal access token, creating a config file if needed."""
+    cfg = config.read(ctx.obj)
 
     token = typer.prompt("GitHub PAT", hide_input=True).strip()
     if not token:
@@ -93,6 +94,10 @@ def login(ctx: typer.Context) -> None:
     auth.save(ctx.obj, token)
     console.print(f"[green]готово[/green], вошли как [bold]{user}[/bold]")
     console.print(f"[dim]{auth.token_path(ctx.obj)}[/dim]")
+
+    if not cfg.repos:
+        console.print(f"\nтеперь допиши репозиторий в [bold]{config.config_path(ctx.obj)}[/bold]:")
+        console.print('\n[dim][[repos]]\nslug = "owner/name"\nwarm = 2[/dim]', markup=False)
 
 
 @app.command()
