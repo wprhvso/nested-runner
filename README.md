@@ -10,36 +10,19 @@ Self-hosted раннеры GitHub Actions, которые сами крутят�
 
 ## Что нажать
 
-### 1. Сделать свой репозиторий
-
-Это твоя матрёшка, а не моя — секреты и раннеры будут жить в твоём репо.
-
-```bash
-gh repo fork wprhvso/nested-runner --clone --fork-name nested-runner
-cd nested-runner
-```
-
-Или проще: кнопка **Use this template** → `gh repo clone owner/name`.
-
-### 2. Включить Actions в форке
-
-В форках workflow'ы выключены по умолчанию. Открыть вкладку **Actions** и нажать зелёную кнопку согласия. Один раз.
-
-### 3. Залогинить gh
+### 1. Залогинить gh
 
 ```bash
 gh auth login
 ```
 
-Контроллер ходит в API через `gh` и оттуда же берёт токен для секрета репо.
-
-### 4. Запустить
+### 2. Запустить
 
 ```bash
 just run owner/name 2 10 10
 ```
 
-Позиционно: репо, `warm`, `max`, `poll`.
+Позиционно: `repo`, `warm`, `max`, `poll`.
 
 Тестовый action:
 
@@ -51,7 +34,7 @@ just test owner/name
 
 | Команда | Что делает |
 |---|---|
-| `just run <repo> <warm> <max> <poll>` | запустить цикл (Ctrl+C = stop) |
-| `just stop <repo>` | отменить все run'ы и снести всех раннеров |
-| `just test <repo>` | проверочный workflow |
-| `just qa` | yaml и workflow |
+| `just run <repo> <warm> <max> <poll>` | запустить цикл |
+| `just stop <repo>` | снести всех раннеров |
+| `just test <repo>` | тестовый workflow |
+| `just qa` | qa: yaml и workflow |
