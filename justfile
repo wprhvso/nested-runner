@@ -4,6 +4,11 @@ default:
 run repo:
     python3 -m nested_runner {{ repo }}
 
+secret token:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    printf '%s' '{{ token }}' | gh secret set RUNNER_PAT
+
 test repo:
     gh workflow run test.yml --repo {{ repo }}
     sleep 3

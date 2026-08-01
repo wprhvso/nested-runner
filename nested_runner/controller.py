@@ -18,10 +18,10 @@ from nested_runner.config import (
 from nested_runner.errors import HttpError, NestedError
 from nested_runner.gh import (
     cancel_run,
+    current_repo,
     default_branch,
     delete_runner,
     dispatch,
-    ensure_secret,
     list_runners,
     list_runs,
     preflight,
@@ -101,33 +101,40 @@ def _acquire_jobs(api: ScaleSetApi, scale_set_id: int, limit: int) -> None:
             log.warning("не забрал job %s: %s", request_id, exc)
 
 
-def _pending(repo: str) -> int:
-    return sum(len(list_runs(repo, state)) for state in ("queued", "in_progress"))
+def _pending(home: str, repo: str) -> int:
+    return sum(len(list_runs(home, repo, state)) for state in ("queued", "in_progress"))
 
 
-def _scale(
+def _scale(  # noqa: PLR0913
     api: ScaleSetApi,
+    home: str,
     repo: str,
     scale_set_id: int,
     branch: str,
     limit: int,
 ) -> None:
     stats = api.statistics(scale_set_id)
-    pending = _pending(repo)
+    pending = _pending(home, repo)
 
     need = max(0, stats.waiting - stats.idle - pending)
     room = max(0, limit - stats.registered - pending)
 
     sent = 0
     for _ in range(min(need, room)):
-        if not dispatch(repo, scale_set_id, branch):
+        if not dispatch(home, repo, scale_set_id, branch):
             break
         sent += 1
 
     log.info("%s | pending=%s need=%s dispatched=%s", stats, pending, need, sent)
 
 
-def _cleanup(api: ScaleSetApi, repo: str, scale_set_id: int, session: Session | None) -> None:
+def _cleanup(  # noqa: PLR0913
+    api: ScaleSetApi,
+    home: str,
+    repo: str,
+    scale_set_id: int,
+    session: Session | None,
+) -> None:
     if session is not None:
         try:
             api.close_session(scale_set_id, session)
@@ -136,8 +143,8 @@ def _cleanup(api: ScaleSetApi, repo: str, scale_set_id: int, session: Session | 
 
     cancelled = 0
     for state in ("in_progress", "queued"):
-        for item in list_runs(repo, state):
-            if cancel_run(repo, int(item["databaseId"])):
+        for item in list_runs(home, repo, state):
+            if cancel_run(home, int(item["databaseId"])):
                 cancelled += 1
 
     removed_set = False
@@ -158,20 +165,21 @@ def _cleanup(api: ScaleSetApi, repo: str, scale_set_id: int, session: Session | 
 
 
 def run(repo: str) -> int:
-    preflight(repo)
-    ensure_secret(repo)
+    home = current_repo()
+    preflight(repo, home)
 
     limit = max_runners()
     name = scale_set_name()
     api = ScaleSetApi(repo)
     scale_set_id = int(api.ensure_scale_set(name)["id"])
-    branch = default_branch(repo)
+    branch = default_branch(home)
     owner = f"nested-{os.getpid()}"
     stop = install_stop_handler()
 
     log.info(
-        "поехали: %s scale-set=%r id=%s max=%s ветка=%s",
+        "поехали: цель=%s контроллер=%s scale-set=%r id=%s max=%s ветка=%s",
         repo,
+        home,
         name,
         scale_set_id,
         limit,
@@ -192,7 +200,7 @@ def run(repo: str) -> int:
                     break
 
                 _acquire_jobs(api, scale_set_id, limit)
-                _scale(api, repo, scale_set_id, branch, limit)
+                _scale(api, home, repo, scale_set_id, branch, limit)
                 failures = 0
 
             except HttpError as exc:
@@ -214,6 +222,6 @@ def run(repo: str) -> int:
                 )
                 time.sleep(delay)
     finally:
-        _cleanup(api, repo, scale_set_id, session)
+        _cleanup(api, home, repo, scale_set_id, session)
 
     return 0

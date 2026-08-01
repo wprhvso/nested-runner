@@ -1,4 +1,5 @@
 name: runner
+run-name: nested ${{ inputs.target_repo }}
 
 on:
   workflow_dispatch:
@@ -7,21 +8,23 @@ on:
         description: ID of the runner scale set to join
         required: true
         type: string
+      target_repo:
+        description: Repository that owns the scale set
+        required: true
+        type: string
 
 permissions: {}
 
 jobs:
   runner:
     runs-on: ubuntu-latest
-    # Контроллер шлёт dispatch только когда job уже acquired, так что раннер
-    # не должен ждать долго. Потолок страхует от зомби на 6 часов.
     timeout-minutes: 60
 
     env:
       GH_TOKEN: ${{ secrets.RUNNER_PAT }}
-      REPO: ${{ github.repository }}
+      REPO: ${{ inputs.target_repo }}
       SCALE_SET_ID: ${{ inputs.scale_set_id }}
-      RUNNER_NAME: run-${{ github.run_id }}-${{ github.run_attempt }}
+      RUNNER_NAME: nested-${{ github.run_id }}-${{ github.run_attempt }}
       NESTED_DIR: ${{ github.workspace }}/nested
 
     steps:
@@ -74,8 +77,6 @@ jobs:
           echo "::add-mask::$jwt"
           pipeline="$(jq -r '.url' <<< "$info" | sed 's:/*$::')"
 
-          # workFolder должен существовать и быть записываемым, иначе раннер
-          # падает с UnauthorizedAccessException уже на первом job.
           work="${RUNNER_TEMP}/_work"
           mkdir -p "$work"
 

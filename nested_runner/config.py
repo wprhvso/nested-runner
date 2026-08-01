@@ -20,10 +20,16 @@ MAX_LOOP_FAILURES = 5
 BACKOFF_BASE = 1.5
 BACKOFF_CAP = 30.0
 
+RUNNER_NAME_PREFIX = "nested-"
+
 RETRY_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 SESSION_STATUSES = frozenset({401, 404, 409})
 
 REPO_PATTERN = re.compile(r"[^/\s]+/[^/\s]+")
+
+
+def run_title(repo: str) -> str:
+    return f"nested {repo}"
 
 
 def _env_int(name: str, default: int) -> int:
