@@ -7,7 +7,8 @@ permissions: {}
 
 jobs:
   test:
-    runs-on: [self-hosted]
+    # Имя scale set, не метка. Должно совпадать с NESTED_SCALE_SET.
+    runs-on: nested
     timeout-minutes: 5
 
     steps:

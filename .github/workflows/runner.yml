@@ -2,17 +2,27 @@ name: runner
 
 on:
   workflow_dispatch:
+    inputs:
+      scale_set_id:
+        description: ID of the runner scale set to join
+        required: true
+        type: string
 
 permissions: {}
 
 jobs:
   runner:
     runs-on: ubuntu-latest
+    # Контроллер шлёт dispatch только когда job уже acquired, так что раннер
+    # не должен ждать долго. Потолок страхует от зомби на 6 часов.
+    timeout-minutes: 60
 
     env:
       GH_TOKEN: ${{ secrets.RUNNER_PAT }}
       REPO: ${{ github.repository }}
-      NESTED_NAME: run-${{ github.run_id }}
+      SCALE_SET_ID: ${{ inputs.scale_set_id }}
+      RUNNER_NAME: run-${{ github.run_id }}-${{ github.run_attempt }}
+      NESTED_DIR: ${{ github.workspace }}/nested
 
     steps:
       - name: Resolve runner version
@@ -36,35 +46,52 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.cache/nested-runner
-          curl -fsSL -o ~/.cache/nested-runner/runner.tar.gz \
+          curl -fsSL --retry 3 --retry-all-errors -o ~/.cache/nested-runner/runner.tar.gz \
             "https://github.com/actions/runner/releases/download/v${VERSION}/actions-runner-linux-x64-${VERSION}.tar.gz"
 
       - name: Unpack
         run: |
           set -euo pipefail
-          mkdir -p "$NESTED_NAME"
-          tar xzf ~/.cache/nested-runner/runner.tar.gz -C "$NESTED_NAME"
+          mkdir -p "$NESTED_DIR"
+          tar xzf ~/.cache/nested-runner/runner.tar.gz -C "$NESTED_DIR"
 
-      - name: Configure
+      - name: Mint JIT config
+        id: jit
         run: |
           set -euo pipefail
-          token="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq '.token')"
-          cd "$NESTED_NAME"
-          ./config.sh \
-            --url "${{ github.server_url }}/$REPO" \
-            --token "$token" \
-            --name "$NESTED_NAME" \
-            --labels self-hosted,nested \
-            --ephemeral \
-            --unattended \
-            --disableupdate
+
+          reg="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq '.token')"
+          echo "::add-mask::$reg"
+
+          info="$(curl -fsSL --retry 3 --retry-all-errors -X POST \
+            -H "Authorization: RemoteAuth $reg" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -nc --arg url "${{ github.server_url }}/$REPO" \
+                    '{url: $url, runnerEvent: "register"}')" \
+            "${GITHUB_API_URL}/actions/runner-registration")"
+
+          jwt="$(jq -r '.token' <<< "$info")"
+          echo "::add-mask::$jwt"
+          pipeline="$(jq -r '.url' <<< "$info" | sed 's:/*$::')"
+
+          # workFolder должен существовать и быть записываемым, иначе раннер
+          # падает с UnauthorizedAccessException уже на первом job.
+          work="${RUNNER_TEMP}/_work"
+          mkdir -p "$work"
+
+          jit="$(curl -fsSL --retry 3 --retry-all-errors \
+            -H "Authorization: Bearer $jwt" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -nc --arg n "$RUNNER_NAME" --arg w "$work" \
+                    '{name: $n, workFolder: $w}')" \
+            "${pipeline}/_apis/runtime/runnerscalesets/${SCALE_SET_ID}/generatejitconfig?api-version=6.0-preview" \
+            | jq -r '.encodedJITConfig')"
+
+          [ -n "$jit" ] && [ "$jit" != null ] || { echo "пустой JIT-конфиг" >&2; exit 1; }
+          echo "::add-mask::$jit"
+          echo "value=$jit" >> "$GITHUB_OUTPUT"
 
       - name: Run
-        run: cd "$NESTED_NAME" && ./run.sh
-
-      - name: Deregister
-        if: always()
-        run: |
-          set -eu
-          token="$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq '.token')" || exit 0
-          cd "$NESTED_NAME" && ./config.sh remove --token "$token" || true
+        env:
+          ACTIONS_RUNNER_INPUT_JITCONFIG: ${{ steps.jit.outputs.value }}
+        run: cd "$NESTED_DIR" && ./run.sh
