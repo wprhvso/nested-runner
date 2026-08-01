@@ -1,0 +1,44 @@
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["."]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",
+    "ANN401",
+    "COM812",
+    "EM101",
+    "EM102",
+    "FBT001",
+    "FBT002",
+    "INP001",
+    "RUF001",
+    "S311",
+    "S603",
+    "S607",
+    "TRY003",
+    "TRY400",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"nested_runner/http.py" = ["ANN401"]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.basedpyright]
+include = ["nested_runner"]
+pythonVersion = "3.13"
+typeCheckingMode = "recommended"
+reportAny = false
+reportExplicitAny = false
+reportUnusedCallResult = false
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
