@@ -1,0 +1,23 @@
+name: test
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test:
+    runs-on: [self-hosted, nested]
+    timeout-minutes: 5
+
+    steps:
+      - name: Where am I
+        run: |
+          echo "runner name: $RUNNER_NAME"
+          echo "hostname:    $(hostname)"
+          uname -a
+
+      - name: Do something
+        run: |
+          echo "matryoshka works"
+          sleep 5

@@ -1,0 +1,70 @@
+name: runner
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  runner:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.RUNNER_PAT }}
+      REPO: ${{ github.repository }}
+      RUNNER_NAME: run-${{ github.run_id }}
+
+    steps:
+      - name: Resolve runner version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(gh api repos/actions/runner/releases/latest --jq '.tag_name' | tr -d v)"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Restore runner
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/nested-runner
+          key: runner-linux-x64-${{ steps.version.outputs.value }}
+
+      - name: Download runner
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.cache/nested-runner
+          curl -fsSL -o ~/.cache/nested-runner/runner.tar.gz \
+            "https://github.com/actions/runner/releases/download/v${VERSION}/actions-runner-linux-x64-${VERSION}.tar.gz"
+
+      - name: Unpack
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_NAME"
+          tar xzf ~/.cache/nested-runner/runner.tar.gz -C "$RUNNER_NAME"
+
+      - name: Configure
+        run: |
+          set -euo pipefail
+          token="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq '.token')"
+          cd "$RUNNER_NAME"
+          ./config.sh \
+            --url "${{ github.server_url }}/$REPO" \
+            --token "$token" \
+            --name "$RUNNER_NAME" \
+            --labels self-hosted,nested \
+            --ephemeral \
+            --unattended \
+            --disableupdate
+
+      - name: Run
+        run: cd "$RUNNER_NAME" && ./run.sh
+
+      - name: Deregister
+        if: always()
+        run: |
+          set -eu
+          token="$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq '.token')" || exit 0
+          cd "$RUNNER_NAME" && ./config.sh remove --token "$token" || true
