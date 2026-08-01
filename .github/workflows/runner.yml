@@ -1,9 +1,13 @@
 name: runner
-run-name: nested ${{ github.run_id }}
+run-name: nested ${{ inputs.target }} ${{ github.run_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: целевой репозиторий owner/name
+        required: true
+        type: string
       jit:
         description: age-encrypted JIT config
         required: true

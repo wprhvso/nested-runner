@@ -100,8 +100,9 @@ def default_branch(repo: str) -> str:
     return gh("api", f"repos/{repo}", "--jq", ".default_branch").strip()
 
 
-def list_runs(home: str, status: str) -> list[dict[str, Any]]:
-    return gh_json(
+def list_runs(home: str, target: str, status: str) -> list[dict[str, Any]]:
+    """Запуски runner.yml в домашнем репо, поднятые для этого таргета."""
+    runs = gh_json(
         "run",
         "list",
         "--repo",
@@ -113,12 +114,14 @@ def list_runs(home: str, status: str) -> list[dict[str, Any]]:
         "--limit",
         "100",
         "--json",
-        "databaseId",
+        "databaseId,displayTitle",
         default=[],
     )
+    marker = f"nested {target} "
+    return [item for item in runs if str(item.get("displayTitle", "")).startswith(marker)]
 
 
-def dispatch(home: str, jit: str, branch: str) -> bool:
+def dispatch(home: str, target: str, jit: str, branch: str) -> bool:
     workflow = runner_workflow()
     try:
         gh(
@@ -129,6 +132,8 @@ def dispatch(home: str, jit: str, branch: str) -> bool:
             home,
             "--ref",
             branch,
+            "-f",
+            f"target={target}",
             "-f",
             f"jit={jit}",
         )
