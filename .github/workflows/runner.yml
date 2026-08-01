@@ -12,7 +12,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.RUNNER_PAT }}
       REPO: ${{ github.repository }}
-      RUNNER_NAME: run-${{ github.run_id }}
+      NESTED_NAME: run-${{ github.run_id }}
 
     steps:
       - name: Resolve runner version
@@ -42,29 +42,29 @@ jobs:
       - name: Unpack
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_NAME"
-          tar xzf ~/.cache/nested-runner/runner.tar.gz -C "$RUNNER_NAME"
+          mkdir -p "$NESTED_NAME"
+          tar xzf ~/.cache/nested-runner/runner.tar.gz -C "$NESTED_NAME"
 
       - name: Configure
         run: |
           set -euo pipefail
           token="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq '.token')"
-          cd "$RUNNER_NAME"
+          cd "$NESTED_NAME"
           ./config.sh \
             --url "${{ github.server_url }}/$REPO" \
             --token "$token" \
-            --name "$RUNNER_NAME" \
+            --name "$NESTED_NAME" \
             --labels self-hosted,nested \
             --ephemeral \
             --unattended \
             --disableupdate
 
       - name: Run
-        run: cd "$RUNNER_NAME" && ./run.sh
+        run: cd "$NESTED_NAME" && ./run.sh
 
       - name: Deregister
         if: always()
         run: |
           set -eu
           token="$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq '.token')" || exit 0
-          cd "$RUNNER_NAME" && ./config.sh remove --token "$token" || true
+          cd "$NESTED_NAME" && ./config.sh remove --token "$token" || true
