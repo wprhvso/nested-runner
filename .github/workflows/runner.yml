@@ -1,15 +1,11 @@
 name: runner
-run-name: nested ${{ inputs.target_repo }}
+run-name: nested ${{ github.run_id }}
 
 on:
   workflow_dispatch:
     inputs:
-      scale_set_id:
-        description: ID of the runner scale set to join
-        required: true
-        type: string
-      target_repo:
-        description: Repository that owns the scale set
+      jit:
+        description: age-encrypted JIT config
         required: true
         type: string
 
@@ -21,18 +17,23 @@ jobs:
     timeout-minutes: 60
 
     env:
-      GH_TOKEN: ${{ secrets.RUNNER_PAT }}
-      REPO: ${{ inputs.target_repo }}
-      SCALE_SET_ID: ${{ inputs.scale_set_id }}
-      RUNNER_NAME: nested-${{ github.run_id }}-${{ github.run_attempt }}
       NESTED_DIR: ${{ github.workspace }}/nested
 
     steps:
+      - name: Install age
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age
+
       - name: Resolve runner version
         id: version
         run: |
           set -euo pipefail
-          version="$(gh api repos/actions/runner/releases/latest --jq '.tag_name' | tr -d v)"
+          version="$(curl -fsSL --retry 3 --retry-all-errors \
+            https://api.github.com/repos/actions/runner/releases/latest \
+            | jq -r '.tag_name' | tr -d v)"
+          [ -n "$version" ] || { echo "не определил версию раннера" >&2; exit 1; }
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Restore runner
@@ -55,40 +56,24 @@ jobs:
       - name: Unpack
         run: |
           set -euo pipefail
-          mkdir -p "$NESTED_DIR"
+          mkdir -p "$NESTED_DIR" /home/runner/work/_temp/_work
           tar xzf ~/.cache/nested-runner/runner.tar.gz -C "$NESTED_DIR"
 
-      - name: Mint JIT config
+      - name: Decrypt JIT config
         id: jit
+        env:
+          NESTED_KEY: ${{ secrets.NESTED_KEY }}
+          CIPHERTEXT: ${{ inputs.jit }}
         run: |
           set -euo pipefail
+          umask 077
+          keyfile="$(mktemp)"
+          trap 'rm -f "$keyfile"' EXIT
 
-          reg="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq '.token')"
-          echo "::add-mask::$reg"
+          printf '%s' "$NESTED_KEY" > "$keyfile"
+          jit="$(printf '%s' "$CIPHERTEXT" | age -d -i "$keyfile")"
 
-          info="$(curl -fsSL --retry 3 --retry-all-errors -X POST \
-            -H "Authorization: RemoteAuth $reg" \
-            -H 'Content-Type: application/json' \
-            -d "$(jq -nc --arg url "${{ github.server_url }}/$REPO" \
-                    '{url: $url, runnerEvent: "register"}')" \
-            "${GITHUB_API_URL}/actions/runner-registration")"
-
-          jwt="$(jq -r '.token' <<< "$info")"
-          echo "::add-mask::$jwt"
-          pipeline="$(jq -r '.url' <<< "$info" | sed 's:/*$::')"
-
-          work="${RUNNER_TEMP}/_work"
-          mkdir -p "$work"
-
-          jit="$(curl -fsSL --retry 3 --retry-all-errors \
-            -H "Authorization: Bearer $jwt" \
-            -H 'Content-Type: application/json' \
-            -d "$(jq -nc --arg n "$RUNNER_NAME" --arg w "$work" \
-                    '{name: $n, workFolder: $w}')" \
-            "${pipeline}/_apis/runtime/runnerscalesets/${SCALE_SET_ID}/generatejitconfig?api-version=6.0-preview" \
-            | jq -r '.encodedJITConfig')"
-
-          [ -n "$jit" ] && [ "$jit" != null ] || { echo "пустой JIT-конфиг" >&2; exit 1; }
+          [ -n "$jit" ] || { echo "пустой JIT-конфиг после расшифровки" >&2; exit 1; }
           echo "::add-mask::$jit"
           echo "value=$jit" >> "$GITHUB_OUTPUT"
 

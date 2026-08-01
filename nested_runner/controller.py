@@ -15,6 +15,7 @@ from nested_runner.config import (
     max_runners,
     scale_set_name,
 )
+from nested_runner.crypto import encrypt
 from nested_runner.errors import HttpError, NestedError
 from nested_runner.gh import (
     cancel_run,
@@ -101,27 +102,35 @@ def _acquire_jobs(api: ScaleSetApi, scale_set_id: int, limit: int) -> None:
             log.warning("не забрал job %s: %s", request_id, exc)
 
 
-def _pending(home: str, repo: str) -> int:
-    return sum(len(list_runs(home, repo, state)) for state in ("queued", "in_progress"))
+def _pending(home: str) -> int:
+    return sum(len(list_runs(home, state)) for state in ("queued", "in_progress"))
 
 
-def _scale(  # noqa: PLR0913
+def _send_runner(api: ScaleSetApi, home: str, scale_set_id: int, branch: str) -> bool:
+    try:
+        jit = encrypt(api.generate_jit(scale_set_id))
+    except NestedError as exc:
+        log.warning("не подготовил JIT: %s", exc)
+        return False
+    return dispatch(home, jit, branch)
+
+
+def _scale(
     api: ScaleSetApi,
     home: str,
-    repo: str,
     scale_set_id: int,
     branch: str,
     limit: int,
 ) -> None:
     stats = api.statistics(scale_set_id)
-    pending = _pending(home, repo)
+    pending = _pending(home)
 
     need = max(0, stats.waiting - stats.idle - pending)
     room = max(0, limit - stats.registered - pending)
 
     sent = 0
     for _ in range(min(need, room)):
-        if not dispatch(home, repo, scale_set_id, branch):
+        if not _send_runner(api, home, scale_set_id, branch):
             break
         sent += 1
 
@@ -143,7 +152,7 @@ def _cleanup(  # noqa: PLR0913
 
     cancelled = 0
     for state in ("in_progress", "queued"):
-        for item in list_runs(home, repo, state):
+        for item in list_runs(home, state):
             if cancel_run(home, int(item["databaseId"])):
                 cancelled += 1
 
@@ -177,7 +186,7 @@ def run(repo: str) -> int:
     stop = install_stop_handler()
 
     log.info(
-        "поехали: цель=%s контроллер=%s scale-set=%r id=%s max=%s ветка=%s",
+        "поехали: цель=%s раннеры=%s scale-set=%r id=%s max=%s ветка=%s",
         repo,
         home,
         name,
@@ -200,7 +209,7 @@ def run(repo: str) -> int:
                     break
 
                 _acquire_jobs(api, scale_set_id, limit)
-                _scale(api, home, repo, scale_set_id, branch, limit)
+                _scale(api, home, scale_set_id, branch, limit)
                 failures = 0
 
             except HttpError as exc:

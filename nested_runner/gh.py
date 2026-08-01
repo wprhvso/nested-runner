@@ -10,20 +10,15 @@ from nested_runner.config import (
     GH_TIMEOUT,
     REPO_PATTERN,
     RUNNER_NAME_PREFIX,
-    run_title,
     runner_workflow,
 )
+from nested_runner.crypto import check_age, recipient
 from nested_runner.errors import NestedError
 
 log = logging.getLogger("nested")
 
 _INSTALL_HINT = "gh не найден — ставь: https://cli.github.com"
 _HOME_HINT = "запускать из каталога репозитория nested-runner (нужен git remote)"
-_SECRET_HINT = (
-    "нет секрета RUNNER_PAT\n"  # noqa: S105
-    "сделай fine-grained PAT на целевой репозиторий (Administration rw, Contents r) и:\n"
-    "  just secret <token>"
-)
 
 
 def gh(*args: str, check: bool = True, timeout: int = GH_TIMEOUT) -> str:
@@ -68,23 +63,18 @@ def current_repo() -> str:
     return out
 
 
-def has_secret(repo: str) -> bool:
-    names = gh_json("secret", "list", "--repo", repo, "--json", "name", default=[])
-    return any(item.get("name") == "RUNNER_PAT" for item in names)
-
-
 def preflight(repo: str, home: str) -> None:
     if not REPO_PATTERN.fullmatch(repo):
         raise NestedError(f"ожидается owner/name, получено: {repo}")
     if shutil.which("gh") is None:
         raise NestedError(_INSTALL_HINT)
 
+    check_age()
+    log.debug("публичный ключ: %s", recipient())
+
     gh("auth", "status")
 
-    gh("api", f"repos/{home}")
     gh("api", f"repos/{home}/actions/workflows/{runner_workflow()}")
-    if not has_secret(home):
-        raise NestedError(_SECRET_HINT)
 
     gh("api", f"repos/{repo}")
     try:
@@ -110,8 +100,8 @@ def default_branch(repo: str) -> str:
     return gh("api", f"repos/{repo}", "--jq", ".default_branch").strip()
 
 
-def list_runs(home: str, repo: str, status: str) -> list[dict[str, Any]]:
-    runs = gh_json(
+def list_runs(home: str, status: str) -> list[dict[str, Any]]:
+    return gh_json(
         "run",
         "list",
         "--repo",
@@ -123,14 +113,12 @@ def list_runs(home: str, repo: str, status: str) -> list[dict[str, Any]]:
         "--limit",
         "100",
         "--json",
-        "databaseId,displayTitle",
+        "databaseId",
         default=[],
     )
-    title = run_title(repo)
-    return [item for item in runs if item.get("displayTitle") == title]
 
 
-def dispatch(home: str, repo: str, scale_set_id: int, branch: str) -> bool:
+def dispatch(home: str, jit: str, branch: str) -> bool:
     workflow = runner_workflow()
     try:
         gh(
@@ -142,9 +130,7 @@ def dispatch(home: str, repo: str, scale_set_id: int, branch: str) -> bool:
             "--ref",
             branch,
             "-f",
-            f"scale_set_id={scale_set_id}",
-            "-f",
-            f"target_repo={repo}",
+            f"jit={jit}",
         )
     except NestedError as exc:
         log.error("не удалось запустить %s: %s", workflow, exc)

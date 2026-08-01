@@ -3,11 +3,13 @@ from __future__ import annotations
 import logging
 import time
 import urllib.parse
+import uuid
 from typing import Any
 
 from nested_runner.config import (
     API_VERSION,
     POLL_TIMEOUT,
+    RUNNER_NAME_PREFIX,
     SESSION_CONFLICT_WAIT,
     TOKEN_SKEW,
     api_base,
@@ -24,6 +26,7 @@ _DEFAULT_RUNNER_GROUP = 1
 _UNAUTHORIZED = 401
 _NOT_FOUND = 404
 _CONFLICT = 409
+_WORK_FOLDER = "/home/runner/work/_temp/_work"
 
 
 class ScaleSetApi:
@@ -119,6 +122,19 @@ class ScaleSetApi:
             if exc.status != _NOT_FOUND:
                 raise
             log.debug("scale set %s уже удалён", scale_set_id)
+
+    def generate_jit(self, scale_set_id: int) -> str:
+        name = f"{RUNNER_NAME_PREFIX}{uuid.uuid4().hex[:12]}"
+        raw = self.call(
+            "POST",
+            f"runnerscalesets/{scale_set_id}/generatejitconfig",
+            body={"name": name, "workFolder": _WORK_FOLDER},
+        )
+        jit = raw.get("encodedJITConfig") if isinstance(raw, dict) else None
+        if not jit:
+            raise NestedError("пустой JIT-конфиг")
+        log.debug("сминтил JIT для раннера %s", name)
+        return jit
 
     def statistics(self, scale_set_id: int) -> Stats:
         raw = self.call("GET", f"runnerscalesets/{scale_set_id}")

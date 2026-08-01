@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 from nested_runner.errors import NestedError
 
 API_VERSION = "6.0-preview"
-USER_AGENT = "nested-runner/3"
+USER_AGENT = "nested-runner/4"
 
 POLL_TIMEOUT = 90
 REQUEST_TIMEOUT = 30
@@ -21,15 +22,12 @@ BACKOFF_BASE = 1.5
 BACKOFF_CAP = 30.0
 
 RUNNER_NAME_PREFIX = "nested-"
+PUBLIC_KEY_PATH = Path("keys/nested.pub")
 
 RETRY_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 SESSION_STATUSES = frozenset({401, 404, 409})
 
 REPO_PATTERN = re.compile(r"[^/\s]+/[^/\s]+")
-
-
-def run_title(repo: str) -> str:
-    return f"nested {repo}"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -55,6 +53,10 @@ def max_runners() -> int:
 
 def runner_workflow() -> str:
     return os.environ.get("NESTED_WORKFLOW", "runner.yml")
+
+
+def public_key_path() -> Path:
+    return PUBLIC_KEY_PATH
 
 
 def api_base() -> str:
