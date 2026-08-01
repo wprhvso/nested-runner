@@ -6,7 +6,7 @@ Self-hosted раннеры GitHub Actions, которые сами крутят�
 
 ## Как это работает
 
-Локальный контроллер раз в `poll` секунд смотрит, сколько у репо свободных раннеров. Если меньше `warm` — запускает `runner.yml`, который поднимает ещё один эфемерный раннер. Общее число раннеров не переваливает за `max`. Ctrl+C гасит всё за собой сам.
+Контроллер заводит в репо эфемерный runner scale set и слушает его очередь. Пришёл job для `runs-on: nested` — контроллер забирает его и диспатчит `runner.yml`. Тот поднимает внутри `ubuntu-latest` настоящий раннер по JIT-конфигу, отрабатывает один job и умирает. Больше `NESTED_MAX` раннеров одновременно не бывает. Ctrl+C сносит scale set, раннеров и висящие запуски.
 
 ## Что нажать
 
@@ -19,22 +19,34 @@ gh auth login
 ### 2. Запустить
 
 ```bash
-just run owner/name 2 10 10
+just run owner/name
 ```
 
-Позиционно: `repo`, `warm`, `max`, `poll`.
-
-Тестовый action:
+Тестовый workflow:
 
 ```bash
 just test owner/name
+```
+
+## Настройки
+
+Переменными окружения:
+
+| Переменная | По умолчанию | Что делает |
+|---|---|---|
+| `NESTED_SCALE_SET` | `nested` | имя scale set, оно же `runs-on` |
+| `NESTED_MAX` | `10` | потолок одновременных раннеров |
+| `NESTED_WORKFLOW` | `runner.yml` | workflow, который поднимает раннер |
+| `NESTED_DEBUG` | — | подробные логи |
+
+```bash
+NESTED_MAX=3 just run owner/name
 ```
 
 ## Команды
 
 | Команда | Что делает |
 |---|---|
-| `just run <repo> <warm> <max> <poll>` | запустить цикл |
-| `just stop <repo>` | снести всех раннеров |
+| `just run <repo>` | запустить цикл |
 | `just test <repo>` | тестовый workflow |
-| `just qa` | qa: yaml и workflow |
+| `just qa` | yamllint, actionlint, ruff, basedpyright |
