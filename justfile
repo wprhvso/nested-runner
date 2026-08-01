@@ -1,34 +1,27 @@
 repo := `git remote get-url origin 2>/dev/null | sed -E 's#.*[:/]([^/]+/[^/]+)$#\1#; s#\.git$##' || echo ""`
-token := "${XDG_CONFIG_HOME:-$HOME/.config}/nested-runner/token"
-config := "${XDG_CONFIG_HOME:-$HOME/.config}/nested-runner/config.toml"
+config := `echo "${XDG_CONFIG_HOME:-$HOME/.config}/nested-runner/config.toml"`
+state := `echo "${XDG_STATE_HOME:-$HOME/.local/state}/nested-runner"`
+
+export NR_REPO := repo
+export NR_CONFIG := config
+export NR_STATE := state
 
 default:
     @just --list
 
 vars:
     @echo "repo:   {{ repo }}"
-    @echo "token:  {{ token }}"
     @echo "config: {{ config }}"
-
-login:
-    uv run nested-runner login
-    gh secret set RUNNER_PAT --repo {{ repo }} < "{{ token }}"
-
-status:
-    uv run nested-runner status
+    @echo "state:  {{ state }}"
 
 run *args:
-    uv run nested-runner run {{ args }}
+    @scripts/run.sh {{ args }}
+
+status:
+    @scripts/status.sh
 
 stop:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    gh run list --repo {{ repo }} --workflow runner.yml --status in_progress --json databaseId --jq '.[].databaseId' \
-        | xargs -r -n1 gh run cancel --repo {{ repo }}
-    gh run list --repo {{ repo }} --workflow runner.yml --status queued --json databaseId --jq '.[].databaseId' \
-        | xargs -r -n1 gh run cancel --repo {{ repo }}
-    gh api repos/{{ repo }}/actions/runners --jq '.runners[].id' \
-        | xargs -r -n1 -I{} gh api -X DELETE repos/{{ repo }}/actions/runners/{}
+    @scripts/stop.sh
 
 test:
     gh workflow run test.yml --repo {{ repo }}
@@ -36,34 +29,18 @@ test:
     gh run watch --repo {{ repo }} --exit-status
 
 runners:
-    gh api repos/{{ repo }}/actions/runners --jq '.runners[].id as $id | "\(.name) \(.status) busy=\(.busy)"'
+    gh api repos/{{ repo }}/actions/runners --jq '.runners[] | "\(.name) \(.status) busy=\(.busy)"'
 
-qa: qa-python qa-yaml qa-actions
-
-qa-python:
-    uv run ruff format --check .
-    uv run ruff check .
-    uv run basedpyright
+qa: qa-yaml qa-actions qa-shell
 
 qa-yaml:
-    uv run yamllint .github/workflows
+    @scripts/qa-yaml.sh
 
 qa-actions:
-    #!/usr/bin/env bash
-    if ! command -v actionlint > /dev/null; then
-        echo "actionlint не найден — workflow не проверены"
-        echo "поставь его, чтобы qa был полным: https://github.com/rhysd/actionlint"
-        exit 0
-    fi
-    echo -e "\033[1mactionlint\033[0m"
-    actionlint
+    @scripts/qa-actions.sh
 
-fix:
-    uv run ruff format .
-    uv run ruff check --fix .
-
-lock:
-    uv lock --upgrade
+qa-shell:
+    @scripts/qa-shell.sh
 
 clean:
-    rm -rf .venv .ruff_cache **/__pycache__
+    rm -rf "{{ state }}"
