@@ -21,8 +21,6 @@ cd nested-runner
 
 Или проще: кнопка **Use this template** → `gh repo clone owner/name`.
 
-Дальше везде `owner/name` — это твой свежесозданный репо.
-
 ### 2. Включить Actions в форке
 
 В форках workflow'ы выключены по умолчанию. Открыть вкладку **Actions** и нажать зелёную кнопку согласия. Один раз.
@@ -37,25 +35,22 @@ GitHub → Settings → Developer settings → Personal access tokens → Fine-g
 - **Administration** — Read and write (без этого не увидит список раннеров)
 - **Contents** — Read
 
-### 4. Положить PAT в секреты своего репо
+### 4. Раздать токен
 
 ```bash
-gh secret set RUNNER_PAT --repo owner/name
-```
-
-Да, тот же токен. Локально — для контроллера, в секретах — чтобы раннер сам себя зарегистрировал.
-
-### 5. Залогиниться
-
-```bash
+just secret
 just login
 ```
 
-Спросит токен, проверит доступ, сохранит в `~/.config/nested-runner/token`.
+Первое кладёт PAT в секреты репо, чтобы раннер сам себя зарегистрировал. Второе — локально, для контроллера.
 
-### 6. Заполнить конфиг
+### 5. Заполнить конфиг
 
-Первый запуск создаст `~/.config/nested-runner/config.toml` и вежливо сообщит, что репозиториев там нет. Открыть, дописать свой slug:
+```bash
+just config
+```
+
+Первый запуск создаст файл и вежливо сообщит, что репозиториев там нет. Дописать свой slug:
 
 ```toml
 poll_seconds = 10
@@ -67,17 +62,17 @@ warm = 2
 
 `warm` — сколько свободных раннеров держать наготове.
 
-### 7. Запустить
+### 6. Запустить
 
 ```bash
 just run
 ```
 
-Через минуту в Settings → Actions → Runners появятся раннеры. Проверить:
+Через минуту появятся раннеры. Проверить:
 
 ```bash
-just status
-gh workflow run test.yml --repo owner/name && gh run watch --repo owner/name
+just runners
+just test
 ```
 
 `test.yml` выполнится на матрёшечном раннере. Если в логе видно `Runner name: run-...` — работает.
@@ -86,13 +81,16 @@ gh workflow run test.yml --repo owner/name && gh run watch --repo owner/name
 
 | Команда | Что делает |
 |---|---|
-| `just login` | сохранить токен |
-| `just status` | показать, что контроллер видит прямо сейчас |
+| `just login` | сохранить токен локально |
+| `just secret` | положить токен в секреты репо |
+| `just config` | открыть конфиг в редакторе |
 | `just run` | запустить цикл |
 | `just run --once` | один тик и выход |
+| `just status` | что контроллер видит прямо сейчас |
+| `just runners` | список раннеров глазами `gh` |
+| `just test` | проверочный workflow |
 | `just qa` | форматтер, линтер, тайпчекер |
 | `just fix` | починить то, что чинится само |
-| `just install` | поставить бинарник `nested-runner` глобально |
 | `just lock` | обновить зависимости |
 | `just clean` | снести venv и кэши |
 
