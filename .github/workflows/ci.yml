@@ -1,0 +1,28 @@
+name: ci
+
+on: push
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - uses: extractions/setup-just@v4
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          pip install --disable-pip-version-check --quiet yamllint ruff basedpyright
+          bash <(curl -fsSL --retry 3 --retry-all-errors \
+            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          echo "$PWD" >> "$GITHUB_PATH"
+
+      - name: QA
+        run: just qa
