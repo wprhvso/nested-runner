@@ -6,6 +6,7 @@ src = ["."]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
+    "CPY001",
     "D",
     "ANN401",
     "COM812",
@@ -14,6 +15,7 @@ ignore = [
     "FBT001",
     "FBT002",
     "INP001",
+    "PLR0917",
     "RUF001",
     "S311",
     "S603",
