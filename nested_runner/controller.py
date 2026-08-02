@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import signal
 import threading
 import time
@@ -106,7 +105,7 @@ def _pending(home: str, target: str) -> int:
     return sum(len(list_runs(home, target, state)) for state in ("queued", "in_progress"))
 
 
-def _send_runner(  # noqa: PLR0913
+def _send_runner(
     api: ScaleSetApi,
     home: str,
     target: str,
@@ -180,7 +179,7 @@ def _cleanup(
     )
 
 
-def run(repo: str) -> int:
+def run(repo: str, stop: threading.Event) -> int:
     home = current_repo()
     preflight(repo, home)
 
@@ -189,8 +188,7 @@ def run(repo: str) -> int:
     api = ScaleSetApi(repo)
     scale_set_id = int(api.ensure_scale_set(name)["id"])
     branch = default_branch(home)
-    owner = f"nested-{os.getpid()}"
-    stop = install_stop_handler()
+    owner = f"nested-{threading.get_ident()}"
 
     log.info(
         "поехали: цель=%s раннеры=%s scale-set=%r id=%s max=%s ветка=%s",

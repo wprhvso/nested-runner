@@ -1,8 +1,8 @@
 default:
     @just --list
 
-run repo:
-    python3 -m nested_runner {{ repo }}
+run *repos:
+    python3 -m nested_runner {{ repos }}
 
 keys force="":
     #!/usr/bin/env bash
