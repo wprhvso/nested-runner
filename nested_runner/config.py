@@ -7,7 +7,7 @@ from pathlib import Path
 from nested_runner.errors import NestedError
 
 API_VERSION = "6.0-preview"
-USER_AGENT = "nested-runner/0.1.0"
+USER_AGENT = "nested-runner/0.1.1"
 
 POLL_TIMEOUT = 90
 REQUEST_TIMEOUT = 30
@@ -57,7 +57,7 @@ def scale_set_name() -> str:
 
 
 def max_runners() -> int:
-    return _env_int("NESTED_MAX", 10)
+    return _env_int("NESTED_MAX", 20)
 
 
 def runner_workflow() -> str:

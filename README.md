@@ -47,7 +47,7 @@ runs-on: nested
 | `GH_TOKEN` | — | токен GitHub, обязателен |
 | `GH_REPO` | `wprhvso/nested-runner` | домашний репозиторий `owner/name` |
 | `NESTED_SCALE_SET` | `nested` | имя scale set в целевом репо, оно же `runs-on` |
-| `NESTED_MAX` | `10` | потолок одновременных раннеров |
+| `NESTED_MAX` | `20` | потолок одновременных раннеров |
 | `NESTED_WORKFLOW` | `runner.yml` | workflow, который поднимает раннер |
 | `NESTED_DEBUG` | — | подробные логи |
 
