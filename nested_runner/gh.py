@@ -10,6 +10,8 @@ from nested_runner.config import (
     GH_TIMEOUT,
     REPO_PATTERN,
     RUNNER_NAME_PREFIX,
+    home_repo,
+    home_repo_configured,
     runner_workflow,
 )
 from nested_runner.crypto import check_age, recipient
@@ -18,7 +20,6 @@ from nested_runner.errors import NestedError
 log = logging.getLogger("nested")
 
 _INSTALL_HINT = "gh не найден — ставь: https://cli.github.com"
-_HOME_HINT = "запускать из каталога репозитория nested-runner (нужен git remote)"
 
 
 def gh(*args: str, check: bool = True, timeout: int = GH_TIMEOUT) -> str:
@@ -54,18 +55,21 @@ def gh_json(*args: str, default: Any = None) -> Any:
 
 
 def current_repo() -> str:
+    fallback = home_repo()
+    if home_repo_configured():
+        return fallback
     try:
         out = gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
     except NestedError:
-        raise NestedError(_HOME_HINT) from None
-    if not out:
-        raise NestedError(_HOME_HINT)
-    return out
+        out = ""
+    return out or fallback
 
 
 def preflight(repo: str, home: str) -> None:
     if not REPO_PATTERN.fullmatch(repo):
         raise NestedError(f"ожидается owner/name, получено: {repo}")
+    if not REPO_PATTERN.fullmatch(home):
+        raise NestedError(f"GH_REPO должен быть owner/name, получено: {home}")
     if shutil.which("gh") is None:
         raise NestedError(_INSTALL_HINT)
 
@@ -101,7 +105,6 @@ def default_branch(repo: str) -> str:
 
 
 def list_runs(home: str, target: str, status: str) -> list[dict[str, Any]]:
-    """Запуски runner.yml в домашнем репо, поднятые для этого таргета."""
     runs = gh_json(
         "run",
         "list",

@@ -11,8 +11,7 @@ run *repos: build
     set -euo pipefail
     docker run --rm -it \
         -e GH_TOKEN="$(gh auth token)" \
-        -e GH_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" \
-        -e NESTED_SCALE_SET -e NESTED_MAX -e NESTED_WORKFLOW -e NESTED_DEBUG \
+        -e GH_REPO -e NESTED_SCALE_SET -e NESTED_MAX -e NESTED_WORKFLOW -e NESTED_DEBUG \
         -v "$PWD/keys:/app/keys:ro" \
         {{ image }} {{ repos }}
 
@@ -66,7 +65,7 @@ keys force="":
 test:
     #!/usr/bin/env bash
     set -euo pipefail
-    repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+    repo="${GH_REPO:-wprhvso/nested-runner}"
     gh workflow run test.yml --repo "$repo"
     sleep 3
     gh run watch --repo "$repo" --exit-status

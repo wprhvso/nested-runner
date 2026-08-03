@@ -23,6 +23,7 @@ BACKOFF_CAP = 30.0
 
 RUNNER_NAME_PREFIX = "nested-"
 PUBLIC_KEY_PATH = Path("keys/nested.pub")
+DEFAULT_HOME_REPO = "wprhvso/nested-runner"
 
 RETRY_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 SESSION_STATUSES = frozenset({401, 404, 409})
@@ -41,6 +42,14 @@ def _env_int(name: str, default: int) -> int:
     if value < 1:
         raise NestedError(f"{name} должен быть больше нуля, получено: {value}")
     return value
+
+
+def home_repo() -> str:
+    return os.environ.get("GH_REPO", "").strip() or DEFAULT_HOME_REPO
+
+
+def home_repo_configured() -> bool:
+    return bool(os.environ.get("GH_REPO", "").strip())
 
 
 def scale_set_name() -> str:

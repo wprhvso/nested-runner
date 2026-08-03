@@ -16,15 +16,12 @@ Self-hosted раннеры GitHub Actions, которые сами крутят�
 gh auth login
 ```
 
-Аккаунт должен быть админом целевого репозитория и коллабаратором этого.
+Аккаунт должен быть админом целевого репозитория и коллабаратором домашнего.
 
 ### 2. Запустить раннер
 
 ```bash
-docker run --rm -it \
-  -e GH_TOKEN="$(gh auth token)" \
-  -e GH_REPO="wprhvso/nested-runner" \
-  ghcr.io/wprhvso/nested-runner:0.1.0 owner/target
+docker run --rm -it -e GH_TOKEN="$(gh auth token)" ghcr.io/wprhvso/nested-runner:0.1.0 owner/target
 ```
 
 ### 3. Поправить `runs-on` во всех нужных workflow
@@ -42,14 +39,14 @@ runs-on: nested
 | Переменная | По умолчанию | Что делает |
 |---|---|---|
 | `GH_TOKEN` | — | токен GitHub, обязателен |
-| `GH_REPO` | — | домашний репозиторий `owner/name`, обязателен |
+| `GH_REPO` | `wprhvso/nested-runner` | домашний репозиторий `owner/name` |
 | `NESTED_SCALE_SET` | `nested` | имя scale set в целевом репо, оно же `runs-on` |
 | `NESTED_MAX` | `10` | потолок одновременных раннеров |
 | `NESTED_WORKFLOW` | `runner.yml` | workflow, который поднимает раннер |
 | `NESTED_DEBUG` | — | подробные логи |
 
 ```bash
-docker run --rm -it -e NESTED_MAX=3 ... ghcr.io/OWNER/nested-runner owner/target
+docker run --rm -it -e NESTED_MAX=3 ... ghcr.io/wprhvso/nested-runner owner/target
 ```
 
 ## Команды
