@@ -10,19 +10,23 @@ Self-hosted раннеры GitHub Actions, которые сами крутят�
 
 ## Что нажать
 
-### 1. Залогинить gh
-
-```bash
-gh auth login
-```
+### 1. Создать токен
 
 Аккаунт должен быть админом целевого репозитория и коллабаратором домашнего.
+
+**Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic)**.
+
+Имя `nested`, no expiration, скоупы `repo` и `workflow`.
 
 ### 2. Запустить раннер
 
 ```bash
-docker run --rm -it -e GH_TOKEN="$(gh auth token)" ghcr.io/wprhvso/nested-runner:0.1.0 owner/target
+docker run -d --name nested-runner --restart unless-stopped -e GH_TOKEN=ghp_... ghcr.io/wprhvso/nested-runner:0.1.0 owner/target
 ```
+
+Можно сразу несколько репозиториев указать.
+
+Логи — `docker logs -f nested-runner`, снести — `docker rm -f nested-runner`.
 
 ### 3. Поправить `runs-on` во всех нужных workflow
 
@@ -31,6 +35,8 @@ runs-on: nested
 ```
 
 Использовать массивы в `runs-on` нельзя.
+
+### 4. Проверить запуском своего workflow
 
 ## Настройки
 
