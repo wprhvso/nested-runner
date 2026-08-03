@@ -21,6 +21,9 @@ gh auth login
 ### 2. Запустить
 
 ```bash
+git clone https://github.com/wprhvso/nested-runner && cd nested-runner
+```
+```bash
 just run owner/target
 ```
 
