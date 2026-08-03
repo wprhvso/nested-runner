@@ -21,7 +21,7 @@ Self-hosted раннеры GitHub Actions, которые сами крутят�
 ### 2. Запустить раннер
 
 ```bash
-docker run -d --name nested-runner --restart unless-stopped -e GH_TOKEN=ghp_... ghcr.io/wprhvso/nested-runner:0.1.0 owner/target
+docker run -d --name nested-runner --restart unless-stopped -e GH_TOKEN=ghp_... ghcr.io/wprhvso/nested-runner owner/target
 ```
 
 Можно сразу несколько репозиториев указать.
