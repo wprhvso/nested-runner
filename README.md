@@ -18,7 +18,7 @@ gh auth login
 
 Аккаунт должен быть админом целевого репозитория и коллабаратором этого.
 
-### 2. Запустить
+### 2. Запустить раннер
 
 ```bash
 git clone https://github.com/wprhvso/nested-runner && cd nested-runner
