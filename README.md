@@ -24,11 +24,15 @@ gh auth login
 just run owner/target
 ```
 
-Тестовый workflow:
+### 3. Поправить `runs-on` во всех нужных workflow
 
-```bash
-just test
+```yml
+runs-on: nested
 ```
+
+Использовать массивы в `runs-on` нельзя.
+
+### 4. Запустить workflow
 
 ## Настройки
 
@@ -44,12 +48,3 @@ just test
 ```bash
 NESTED_MAX=3 just run owner/target
 ```
-
-## Команды
-
-| Команда | Что делает |
-|---|---|
-| `just run <repo>` | запустить цикл для целевого репо |
-| `just test` | тестовый workflow |
-| `just qa` | yamllint, actionlint, ruff, basedpyright |
-| `just keys` | сгенерировать пару ключей, уже сделано |
