@@ -12,7 +12,7 @@ Self-hosted раннеры GitHub Actions, которые сами крутят�
 
 ### 1. Создать токен
 
-Аккаунт должен быть админом целевого репозитория и коллабаратором домашнего.
+Аккаунт должен быть админом целевого репозитория и коллабаратором этого.
 
 **Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic)**.
 
