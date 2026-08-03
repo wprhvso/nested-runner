@@ -89,9 +89,6 @@ env -C /opt/nested-runner docker compose pull && env -C /opt/nested-runner docke
 
 | Команда | Что делает |
 |---|---|
-| `docker compose up -d` | поднять контроллер |
-| `docker compose logs -f` | логи |
-| `docker compose down` | остановить и убрать за собой |
 | `just build` | собрать образ локально |
 | `just run <repo>` | собрать и запустить, переменные подставит сам |
 | `just version [vX.Y.Z]` | показать или проставить версию |
