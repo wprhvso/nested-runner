@@ -1,8 +1,52 @@
+image := "nested-runner"
+
 default:
     @just --list
 
-run *repos:
-    python3 -m nested_runner {{ repos }}
+build:
+    docker build -t {{ image }} .
+
+run *repos: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    docker run --rm -it \
+        -e GH_TOKEN="$(gh auth token)" \
+        -e GH_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" \
+        -e NESTED_SCALE_SET -e NESTED_MAX -e NESTED_WORKFLOW -e NESTED_DEBUG \
+        -v "$PWD/keys:/app/keys:ro" \
+        {{ image }} {{ repos }}
+
+version *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    given=({{ args }})
+    if [ "${#given[@]}" -eq 0 ]; then
+        printf 'v%s\n' "$(cat VERSION)"
+        exit 0
+    fi
+    if [ "${#given[@]}" -gt 1 ]; then
+        echo "usage: just version [vX.Y.Z]" >&2
+        exit 2
+    fi
+    new="${given[0]#v}"
+    [[ "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || {
+        echo "это не версия: ${given[0]}" >&2
+        exit 1
+    }
+    old="$(cat VERSION)"
+    if [ "$new" != "$old" ]; then
+        git ls-files -z | xargs -0 perl -pi -e "s/\Q$old\E/$new/g"
+    fi
+    printf 'v%s\n' "$new"
+
+tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -z "$(git status --porcelain)" ] || { echo "дерево грязное — сначала закоммить" >&2; exit 1; }
+    v="v$(cat VERSION)"
+    git tag -a "$v" -m "$v"
+    git push origin "$v"
+    printf '%s\n' "$v"
 
 keys force="":
     #!/usr/bin/env bash

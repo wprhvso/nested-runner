@@ -21,10 +21,10 @@ gh auth login
 ### 2. Запустить раннер
 
 ```bash
-git clone https://github.com/wprhvso/nested-runner && cd nested-runner
-```
-```bash
-just run owner/target
+docker run --rm -it \
+  -e GH_TOKEN="$(gh auth token)" \
+  -e GH_REPO="wprhvso/nested-runner" \
+  ghcr.io/wprhvso/nested-runner:0.1.0 owner/target
 ```
 
 ### 3. Поправить `runs-on` во всех нужных workflow
@@ -35,19 +35,32 @@ runs-on: nested
 
 Использовать массивы в `runs-on` нельзя.
 
-### 4. Запустить workflow
-
 ## Настройки
 
 Переменными окружения:
 
 | Переменная | По умолчанию | Что делает |
 |---|---|---|
+| `GH_TOKEN` | — | токен GitHub, обязателен |
+| `GH_REPO` | — | домашний репозиторий `owner/name`, обязателен |
 | `NESTED_SCALE_SET` | `nested` | имя scale set в целевом репо, оно же `runs-on` |
 | `NESTED_MAX` | `10` | потолок одновременных раннеров |
 | `NESTED_WORKFLOW` | `runner.yml` | workflow, который поднимает раннер |
 | `NESTED_DEBUG` | — | подробные логи |
 
 ```bash
-NESTED_MAX=3 just run owner/target
+docker run --rm -it -e NESTED_MAX=3 ... ghcr.io/OWNER/nested-runner owner/target
 ```
+
+## Команды
+
+| Команда | Что делает |
+|---|---|
+| `docker run ... <repo>` | запустить цикл для целевого репо |
+| `just build` | собрать образ локально |
+| `just run <repo>` | собрать и запустить, переменные подставит сам |
+| `just version [vX.Y.Z]` | показать или проставить версию |
+| `just tag` | тег `vX.Y.Z` и пуш |
+| `just test` | тестовый workflow |
+| `just qa` | yamllint, actionlint, ruff, basedpyright |
+| `just keys` | сгенерировать пару ключей, уже сделано |
