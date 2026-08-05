@@ -7,7 +7,7 @@ from pathlib import Path
 from nested_runner.errors import NestedError
 
 API_VERSION = "6.0-preview"
-USER_AGENT = "nested-runner/0.1.1"
+USER_AGENT = "nested-runner/0.1.2"
 
 POLL_TIMEOUT = 90
 REQUEST_TIMEOUT = 30

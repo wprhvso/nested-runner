@@ -49,3 +49,35 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  pypi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    environment: pypi
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Check version matches tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [ "$TAG" = "v$(cat VERSION)" ] || { echo "тег $TAG не совпадает с VERSION" >&2; exit 1; }
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          pip install --disable-pip-version-check --quiet build
+          python -m build
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
