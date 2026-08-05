@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("nested")
 
-_USAGE = "usage: python3 -m nested_runner owner/name [owner/name ...]"
+_USAGE = "usage: nested-runner owner/name [owner/name ...]"
 _EXIT_USAGE = 2
 _EXIT_ERROR = 1
 _EXIT_INTERRUPTED = 130
@@ -62,5 +62,9 @@ def main(argv: Sequence[str]) -> int:
     return 0
 
 
+def cli() -> int:
+    return main(sys.argv[1:])
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(cli())
