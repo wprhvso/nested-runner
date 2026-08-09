@@ -7,6 +7,7 @@ from pathlib import Path
 from nested_runner.errors import NestedError
 
 API_VERSION = "6.0-preview"
+REST_VERSION = "2022-11-28"
 USER_AGENT = "nested-runner/0.1.3"
 
 POLL_TIMEOUT = 90
@@ -20,6 +21,25 @@ MAX_ATTEMPTS = 5
 MAX_LOOP_FAILURES = 5
 BACKOFF_BASE = 1.5
 BACKOFF_CAP = 30.0
+
+# Тип сообщения очереди и типы job-сообщений внутри тела.
+QUEUE_MESSAGE_TYPE = "RunnerScaleSetJobMessages"
+JOB_AVAILABLE = "JobAvailable"
+JOB_COMPLETED = "JobCompleted"
+CAPACITY_HEADER = "X-ScaleSetMaxCapacity"
+
+# Диспатч раннера — сеть плюс age, поэтому пачку отправляем параллельно.
+# Повторять диспатч нельзя: тот же JIT-конфиг уехал бы в два запуска.
+DISPATCH_WORKERS = 8
+DISPATCH_ATTEMPTS = 1
+
+# Как часто фоновый сверщик пересчитывает живые запуски раннеров и сколько
+# ждём появления запуска, прежде чем счесть диспатч мертворождённым.
+FLEET_INTERVAL = 15.0
+FLEET_TTL = 120.0
+RUN_STATUSES = ("queued", "in_progress")
+RUNS_PER_PAGE = 100
+RUNS_PAGES = 3
 
 RUNNER_NAME_PREFIX = "nested-"
 PUBLIC_KEY_PATH = Path("keys/nested.pub")

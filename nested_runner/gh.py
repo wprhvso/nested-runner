@@ -1,25 +1,37 @@
 from __future__ import annotations
 
-import json
+import functools
 import logging
+import os
 import shutil
 import subprocess
 from typing import Any
 
 from nested_runner.config import (
+    DISPATCH_ATTEMPTS,
     GH_TIMEOUT,
     REPO_PATTERN,
+    REST_VERSION,
     RUNNER_NAME_PREFIX,
+    RUNS_PAGES,
+    RUNS_PER_PAGE,
+    api_base,
     home_repo,
     home_repo_configured,
     runner_workflow,
 )
 from nested_runner.crypto import check_age, recipient
-from nested_runner.errors import NestedError
+from nested_runner.errors import HttpError, NestedError
+from nested_runner.http import request
 
 log = logging.getLogger("nested")
 
 _INSTALL_HINT = "gh не найден — ставь: https://cli.github.com"
+_REST_HEADERS = {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": REST_VERSION,
+}
+_GONE = 409
 
 
 def gh(*args: str, check: bool = True, timeout: int = GH_TIMEOUT) -> str:
@@ -42,16 +54,25 @@ def gh(*args: str, check: bool = True, timeout: int = GH_TIMEOUT) -> str:
     return proc.stdout
 
 
-def gh_json(*args: str, default: Any = None) -> Any:
-    out = gh(*args, check=default is None)
-    if not out.strip():
-        return default
-    try:
-        return json.loads(out)
-    except json.JSONDecodeError:
-        if default is not None:
-            return default
-        raise NestedError(f"gh {' '.join(args[:2])} вернул не JSON") from None
+@functools.cache
+def token() -> str:
+    # Всё, что на горячем пути, ходит в REST напрямую: спавнить gh на каждый
+    # вызов — это лишние сотни миллисекунд и ещё один сетевой round trip внутри.
+    value = os.environ.get("GH_TOKEN", "").strip() or gh("auth", "token").strip()
+    if not value:
+        raise NestedError("не нашёл токен: ни GH_TOKEN, ни gh auth token")
+    return value
+
+
+def rest(method: str, path: str, *, body: object = None, attempts: int = 3) -> Any:
+    return request(
+        method,
+        f"{api_base()}/{path.lstrip('/')}",
+        auth=f"Bearer {token()}",
+        body=body,
+        attempts=attempts,
+        extra=_REST_HEADERS,
+    )
 
 
 def current_repo() -> str:
@@ -78,11 +99,12 @@ def preflight(repo: str, home: str) -> None:
 
     gh("auth", "status")
 
-    gh("api", f"repos/{home}/actions/workflows/{runner_workflow()}")
+    # Пробы идут тем же путём, которым потом пойдёт горячий цикл.
+    rest("GET", f"repos/{home}/actions/workflows/{runner_workflow()}")
 
-    gh("api", f"repos/{repo}")
+    rest("GET", f"repos/{repo}")
     try:
-        gh("api", f"repos/{repo}/actions/runners?per_page=1")
+        rest("GET", f"repos/{repo}/actions/runners?per_page=1")
     except NestedError:
         raise NestedError(
             f"нет прав администратора на {repo} — они нужны, чтобы завести scale set",
@@ -90,55 +112,49 @@ def preflight(repo: str, home: str) -> None:
 
 
 def registration_token(repo: str) -> str:
-    return gh(
-        "api",
-        "-X",
-        "POST",
-        f"repos/{repo}/actions/runners/registration-token",
-        "--jq",
-        ".token",
-    ).strip()
+    payload = rest("POST", f"repos/{repo}/actions/runners/registration-token") or {}
+    value = str(payload.get("token", ""))
+    if not value:
+        raise NestedError(f"пустой registration token для {repo}")
+    return value
 
 
 def default_branch(repo: str) -> str:
-    return gh("api", f"repos/{repo}", "--jq", ".default_branch").strip()
+    payload = rest("GET", f"repos/{repo}") or {}
+    value = str(payload.get("default_branch", "")).strip()
+    if not value:
+        # Иначе диспатч будет молча падать на каждой попытке.
+        raise NestedError(f"не определил ветку по умолчанию для {repo}")
+    return value
 
 
 def list_runs(home: str, target: str, status: str) -> list[dict[str, Any]]:
-    runs = gh_json(
-        "run",
-        "list",
-        "--repo",
-        home,
-        "--workflow",
-        runner_workflow(),
-        "--status",
-        status,
-        "--limit",
-        "100",
-        "--json",
-        "databaseId,displayTitle",
-        default=[],
-    )
+    # Страницы обходим: в home-репо живут запуски всех целей, и обрезать
+    # список до фильтра значит потерять свои же живые раннеры.
     marker = f"nested {target} "
-    return [item for item in runs if str(item.get("displayTitle", "")).startswith(marker)]
+    found: list[dict[str, Any]] = []
+    for page in range(1, RUNS_PAGES + 1):
+        query = f"?status={status}&per_page={RUNS_PER_PAGE}&page={page}&exclude_pull_requests=true"
+        payload = rest("GET", f"repos/{home}/actions/workflows/{runner_workflow()}/runs{query}")
+        runs = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
+        found.extend(item for item in runs if _title(item).startswith(marker))
+        if len(runs) < RUNS_PER_PAGE:
+            break
+    return found
+
+
+def _title(run: dict[str, Any]) -> str:
+    return str(run.get("display_title") or run.get("name") or "")
 
 
 def dispatch(home: str, target: str, jit: str, branch: str) -> bool:
     workflow = runner_workflow()
     try:
-        gh(
-            "workflow",
-            "run",
-            workflow,
-            "--repo",
-            home,
-            "--ref",
-            branch,
-            "-f",
-            f"target={target}",
-            "-f",
-            f"jit={jit}",
+        rest(
+            "POST",
+            f"repos/{home}/actions/workflows/{workflow}/dispatches",
+            body={"ref": branch, "inputs": {"target": target, "jit": jit}},
+            attempts=DISPATCH_ATTEMPTS,
         )
     except NestedError as exc:
         log.error("не удалось запустить %s: %s", workflow, exc)
@@ -148,7 +164,13 @@ def dispatch(home: str, target: str, jit: str, branch: str) -> bool:
 
 def cancel_run(repo: str, run_id: int) -> bool:
     try:
-        gh("run", "cancel", str(run_id), "--repo", repo)
+        rest("POST", f"repos/{repo}/actions/runs/{run_id}/cancel")
+    except HttpError as exc:
+        if exc.status == _GONE:
+            log.debug("run %s уже не бежит", run_id)
+            return False
+        log.warning("не отменил run %s: %s", run_id, exc)
+        return False
     except NestedError as exc:
         log.warning("не отменил run %s: %s", run_id, exc)
         return False
@@ -156,14 +178,14 @@ def cancel_run(repo: str, run_id: int) -> bool:
 
 
 def list_runners(repo: str) -> list[dict[str, Any]]:
-    payload = gh_json("api", f"repos/{repo}/actions/runners", default={}) or {}
-    runners = payload.get("runners", [])
+    payload = rest("GET", f"repos/{repo}/actions/runners?per_page=100") or {}
+    runners = payload.get("runners", []) if isinstance(payload, dict) else []
     return [item for item in runners if str(item.get("name", "")).startswith(RUNNER_NAME_PREFIX)]
 
 
 def delete_runner(repo: str, runner_id: int) -> bool:
     try:
-        gh("api", "-X", "DELETE", f"repos/{repo}/actions/runners/{runner_id}")
+        rest("DELETE", f"repos/{repo}/actions/runners/{runner_id}")
     except NestedError:
         return False
     return True
