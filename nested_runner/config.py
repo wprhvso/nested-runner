@@ -8,7 +8,8 @@ from nested_runner.errors import NestedError
 
 API_VERSION = "6.0-preview"
 REST_VERSION = "2022-11-28"
-USER_AGENT = "nested-runner/0.1.3"
+
+USER_AGENT = "nested-runner/0.2.0"
 
 POLL_TIMEOUT = 90
 REQUEST_TIMEOUT = 30
