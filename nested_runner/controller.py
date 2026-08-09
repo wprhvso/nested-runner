@@ -63,6 +63,8 @@ class Ctx:
     fleet: Fleet
     # Запуски от прошлой жизни контроллера: живые, но бесполезные.
     orphans: set[int]
+    # Решать умеют два потока — главный цикл и сверщик. По одному за раз.
+    scaling: threading.Lock
 
 
 def install_stop_handler() -> threading.Event:
@@ -166,17 +168,18 @@ def _dispatch_many(ctx: Ctx, count: int) -> int:
 def _scale(ctx: Ctx, stats: Stats, note: str, taken: int = 0) -> None:
     # taken — job'ы, которые мы только что забрали: статистика в сообщении их
     # ещё не видит, но раннеры им нужны уже сейчас.
-    want = min(ctx.limit, stats.assigned + taken)
-    have = ctx.fleet.size()
-    need = max(0, want - have)
+    with ctx.scaling:
+        want = min(ctx.limit, stats.assigned + taken)
+        have = ctx.fleet.size()
+        need = max(0, want - have)
 
-    log.info("%s | %s: want=%s have=%s need=%s", stats, note, want, have, need)
-    if not need:
-        return
+        log.info("%s | %s: want=%s have=%s need=%s", stats, note, want, have, need)
+        if not need:
+            return
 
-    started = time.monotonic()
-    sent = _dispatch_many(ctx, need)
-    log.info("раскидал раннеров %s/%s за %.1f с", sent, need, time.monotonic() - started)
+        started = time.monotonic()
+        sent = _dispatch_many(ctx, need)
+        log.info("раскидал раннеров %s/%s за %.1f с", sent, need, time.monotonic() - started)
 
 
 def _acquire(ctx: Ctx, session: Session, ids: list[int]) -> int:
@@ -274,6 +277,10 @@ def _reconcile_loop(ctx: Ctx, stop: threading.Event) -> None:
     while not stop.wait(FLEET_INTERVAL):
         try:
             _reconcile(ctx)
+            # Сверка меняет ёмкость: догорел запуск, умер диспатч. Главный цикл
+            # в это время спит в long poll, и без решения тут job простоял бы до
+            # конца окна опроса — ровно та тишина, ради которой всё делалось.
+            _scale(ctx, ctx.api.statistics(ctx.scale_set_id), "сверка")
         except NestedError as exc:
             log.debug("не сверил флот: %s", exc)
 
@@ -385,6 +392,7 @@ def _start(repo: str) -> tuple[Ctx, bool]:
         limit=max_runners(),
         fleet=Fleet(),
         orphans=set(),
+        scaling=threading.Lock(),
     )
 
     log.info(
