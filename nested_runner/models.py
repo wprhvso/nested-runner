@@ -27,10 +27,6 @@ class Stats:
             idle=raw.get("totalIdleRunners", 0),
         )
 
-    @property
-    def waiting(self) -> int:
-        return max(0, self.assigned + self.acquired - self.running)
-
     @override
     def __str__(self) -> str:
         return (
@@ -46,3 +42,6 @@ class Session:
     queue_url: str
     queue_token: str
     queue_token_exp: float
+    # Открытие и обновление сессии возвращают свежую статистику — по ней
+    # можно решать сразу, не дожидаясь первого сообщения очереди.
+    stats: Stats = Stats()

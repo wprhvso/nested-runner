@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import urllib.parse
 import uuid
@@ -8,6 +9,7 @@ from typing import Any
 
 from nested_runner.config import (
     API_VERSION,
+    CAPACITY_HEADER,
     POLL_TIMEOUT,
     RUNNER_NAME_PREFIX,
     SESSION_CONFLICT_WAIT,
@@ -35,8 +37,16 @@ class ScaleSetApi:
         self._pipeline_url: str | None = None
         self._token: str = ""
         self._token_exp: float = 0.0
+        # Пачку раннеров диспатчим параллельно, значит JWT могут дёрнуть разом.
+        self._auth_lock: threading.Lock = threading.Lock()
 
-    def _authenticate(self) -> None:
+    def _authenticate(self, *, force: bool = False) -> None:
+        with self._auth_lock:
+            if not force and self._token and time.time() < self._token_exp - TOKEN_SKEW:
+                return
+            self._fetch_token()
+
+    def _fetch_token(self) -> None:
         info = request(
             "POST",
             f"{api_base()}/actions/runner-registration",
@@ -68,16 +78,27 @@ class ScaleSetApi:
             raise NestedError("не удалось получить pipeline URL")
         return self._pipeline_url
 
-    def call(self, method: str, path: str, *, body: object = None, **kw: Any) -> Any:
+    def call(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: object = None,
+        auth: str | None = None,
+        **kw: Any,
+    ) -> Any:
         url = f"{self.pipeline_url}/_apis/runtime/{path}"
         url += ("&" if "?" in url else "?") + f"api-version={API_VERSION}"
+        if auth is not None:
+            # Токен очереди: 401 значит «истёк», обновлять сессию — забота вызывающего.
+            return request(method, url, auth=auth, body=body, **kw)
         try:
             return request(method, url, auth=f"Bearer {self.token}", body=body, **kw)
         except HttpError as exc:
             if exc.status != _UNAUTHORIZED:
                 raise
             log.info("pipeline JWT отвергнут, переполучаю")
-            self._authenticate()
+            self._authenticate(force=True)
             return request(method, url, auth=f"Bearer {self.token}", body=body, **kw)
 
     def find_scale_set(self, name: str) -> dict[str, Any] | None:
@@ -95,11 +116,13 @@ class ScaleSetApi:
                 return item
         return None
 
-    def ensure_scale_set(self, name: str) -> dict[str, Any]:
+    def ensure_scale_set(self, name: str) -> tuple[dict[str, Any], bool]:
+        # Второе значение — создали ли заново. Если да, раннеры из прошлой жизни
+        # смотрят в удалённый scale set и job уже не возьмут.
         existing = self.find_scale_set(name)
         if existing:
             log.info("scale set %r уже есть, id=%s", name, existing["id"])
-            return existing
+            return existing, False
 
         created = self.call(
             "POST",
@@ -113,7 +136,7 @@ class ScaleSetApi:
         if not isinstance(created, dict) or "id" not in created:
             raise NestedError(f"не удалось создать scale set {name!r}")
         log.info("создал scale set %r, id=%s", name, created["id"])
-        return created
+        return created, True
 
     def delete_scale_set(self, scale_set_id: int) -> None:
         try:
@@ -141,24 +164,39 @@ class ScaleSetApi:
         payload = raw if isinstance(raw, dict) else {}
         return Stats.parse(payload.get("statistics"))
 
+    @staticmethod
+    def _session(raw: object) -> Session:
+        if not isinstance(raw, dict) or "sessionId" not in raw:
+            raise NestedError("в ответе нет message session")
+        token = raw["messageQueueAccessToken"]
+        return Session(
+            session_id=raw["sessionId"],
+            queue_url=raw["messageQueueUrl"],
+            queue_token=token,
+            queue_token_exp=jwt_expiry(token),
+            stats=Stats.parse(raw.get("statistics")),
+        )
+
     def open_session(self, scale_set_id: int, owner: str) -> Session:
         raw = self.call(
             "POST",
             f"runnerscalesets/{scale_set_id}/sessions",
             body={"ownerName": owner},
         )
-        if not isinstance(raw, dict) or "sessionId" not in raw:
-            raise NestedError("не удалось открыть message session")
-
-        token = raw["messageQueueAccessToken"]
-        session = Session(
-            session_id=raw["sessionId"],
-            queue_url=raw["messageQueueUrl"],
-            queue_token=token,
-            queue_token_exp=jwt_expiry(token),
-        )
+        session = self._session(raw)
         log.info("открыл message session %s", session.session_id)
         return session
+
+    def refresh_session(self, scale_set_id: int, session: Session) -> Session:
+        # Дешёвая замена протухшего токена очереди: sessionId и lastMessageId
+        # остаются в силе, пересоздавать сессию (и ждать 409) не нужно.
+        raw = self.call(
+            "PATCH",
+            f"runnerscalesets/{scale_set_id}/sessions/{session.session_id}",
+        )
+        refreshed = self._session(raw)
+        log.info("обновил токен очереди для сессии %s", refreshed.session_id)
+        return refreshed
 
     def close_session(self, scale_set_id: int, session: Session) -> None:
         try:
@@ -188,13 +226,29 @@ class ScaleSetApi:
             time.sleep(SESSION_CONFLICT_WAIT)
             return self.open_session(scale_set_id, owner)
 
-    def poll(self, session: Session) -> dict[str, Any] | None:
+    def poll(
+        self,
+        session: Session,
+        last_message_id: int = 0,
+        capacity: int = 0,
+    ) -> dict[str, Any] | None:
+        url = session.queue_url
+        if last_message_id > 0:
+            url += ("&" if "?" in url else "?") + f"lastMessageId={last_message_id}"
         message = request(
             "GET",
-            session.queue_url,
+            url,
             auth=f"Bearer {session.queue_token}",
             timeout=POLL_TIMEOUT,
-            attempts=2,
+            # Одна попытка: повтор внутри удвоил бы окно тишины, сорванный
+            # опрос вызывающий переживёт сам.
+            attempts=1,
+            extra={
+                # Очередь ждёт api-version в Accept, не в query.
+                "Accept": f"application/json; api-version={API_VERSION}",
+                # Сколько раннеров мы вообще способны поднять — сервер учитывает.
+                CAPACITY_HEADER: str(capacity),
+            },
         )
         return message if isinstance(message, dict) else None
 
@@ -204,7 +258,7 @@ class ScaleSetApi:
             "DELETE",
             f"{base}/{message_id}?{query}",
             auth=f"Bearer {session.queue_token}",
-            attempts=3,
+            attempts=2,
         )
 
     def acquirable_jobs(self, scale_set_id: int) -> list[dict[str, Any]]:
@@ -213,5 +267,15 @@ class ScaleSetApi:
             return []
         return raw.get("value", []) if isinstance(raw, dict) else raw
 
-    def acquire(self, scale_set_id: int, request_id: int) -> None:
-        self.call("POST", f"runnerscalesets/{scale_set_id}/jobs/{request_id}/acquire", body={})
+    def acquire_jobs(self, scale_set_id: int, session: Session, request_ids: list[int]) -> int:
+        # Одна пачка на все job'ы вместо запроса на каждую.
+        if not request_ids:
+            return 0
+        raw = self.call(
+            "POST",
+            f"runnerscalesets/{scale_set_id}/acquirejobs",
+            body=request_ids,
+            auth=f"Bearer {session.queue_token}",
+        )
+        taken = raw.get("value", []) if isinstance(raw, dict) else (raw or [])
+        return len(taken) if isinstance(taken, list) else 0

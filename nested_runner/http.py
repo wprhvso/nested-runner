@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import http.client
 import json
 import logging
 import random
@@ -43,9 +44,12 @@ def request(  #  noqa: PLR0913
     body: object = None,
     timeout: int = REQUEST_TIMEOUT,
     attempts: int = MAX_ATTEMPTS,
+    extra: dict[str, str] | None = None,
 ) -> Any:
     payload = None if body is None else json.dumps(body).encode()
     headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
+    if extra:
+        headers.update(extra)
     if auth:
         headers["Authorization"] = auth
 
@@ -62,7 +66,10 @@ def request(  #  noqa: PLR0913
                 raise HttpError(exc.code, url, detail) from None
             last = HttpError(exc.code, url, detail)
             delay = backoff(attempt, exc.headers.get("Retry-After"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
+            # OSError накрывает URLError и TimeoutError, HTTPException —
+            # оборванный keep-alive: GitHub закрывает соединения когда захочет,
+            # и голый RemoteDisconnected раньше убивал поток целиком.
             last = exc
             delay = backoff(attempt)
 
