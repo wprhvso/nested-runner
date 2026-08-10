@@ -36,7 +36,7 @@ def backoff(attempt: int, retry_after: str | None = None, cap: float = BACKOFF_C
     return min(BACKOFF_BASE**attempt, cap) * (0.5 + random.random())
 
 
-def request(  #  noqa: PLR0913
+def request(
     method: str,
     url: str,
     *,
@@ -74,7 +74,9 @@ def request(  #  noqa: PLR0913
             delay = backoff(attempt)
 
         if attempt + 1 < attempts:
-            log.debug("повтор %s %s через %.1f с (%s)", method, redact(url), delay, last)
+            log.debug(
+                "повтор %s %s через %.1f с (%s)", method, redact(url), delay, last
+            )
             time.sleep(delay)
 
     raise NestedError(f"{method} {redact(url)} не удался за {attempts} попыток: {last}")

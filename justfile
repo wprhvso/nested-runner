@@ -70,7 +70,7 @@ test:
     sleep 3
     gh run watch --repo "$repo" --exit-status
 
-qa: yamllint actionlint ruff basedpyright
+qa: yamllint actionlint python
 
 yamllint:
     #!/usr/bin/env bash
@@ -84,15 +84,10 @@ actionlint:
     command -v actionlint > /dev/null || { echo "actionlint не найден — workflow не проверены"; exit 0; }
     actionlint
 
-ruff:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v ruff > /dev/null || { echo "ruff не найден — python не проверен"; exit 0; }
-    ruff check nested_runner
-    ruff format --check nested_runner
+# Настройки QA живут в wprhvso/qa-python — скрипт подкладывает те же конфиги,
+# что экшен использует в CI, и запускает те же команды.
+python:
+    bash <(curl -fsSL https://raw.githubusercontent.com/wprhvso/qa-python/v1/scripts/local.sh)
 
-basedpyright:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v basedpyright > /dev/null || { echo "basedpyright не найден — типы не проверены"; exit 0; }
-    basedpyright
+fix:
+    bash <(curl -fsSL https://raw.githubusercontent.com/wprhvso/qa-python/v1/scripts/local.sh) --fix

@@ -70,7 +70,8 @@ def main(argv: Sequence[str]) -> int:
     stop = install_stop_handler()
     results: dict[str, int] = {}
     threads = [
-        threading.Thread(target=_worker, args=(repo, stop, results), name=repo) for repo in argv
+        threading.Thread(target=_worker, args=(repo, stop, results), name=repo)
+        for repo in argv
     ]
 
     try:
