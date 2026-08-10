@@ -27,13 +27,13 @@ log = logging.getLogger("nested")
 _FALLBACK_TTL = 1800.0
 
 
-def backoff(attempt: int, retry_after: str | None = None) -> float:
+def backoff(attempt: int, retry_after: str | None = None, cap: float = BACKOFF_CAP) -> float:
     if retry_after:
         try:
-            return min(float(retry_after), BACKOFF_CAP)
+            return min(float(retry_after), cap)
         except ValueError:
             pass
-    return min(BACKOFF_BASE**attempt, BACKOFF_CAP) * (0.5 + random.random())
+    return min(BACKOFF_BASE**attempt, cap) * (0.5 + random.random())
 
 
 def request(

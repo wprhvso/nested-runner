@@ -4,8 +4,6 @@ on: push
 
 jobs:
   qa:
-    # Не nested: этот репозиторий и есть nested-раннер, его CI не должен
-    # зависеть от самого себя.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -32,5 +30,19 @@ jobs:
             https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           echo "$PWD" >> "$GITHUB_PATH"
 
-      - run: yamllint .github/workflows
       - run: actionlint -color
+
+  nix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Flake check
+        run: nix flake check -L

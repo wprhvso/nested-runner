@@ -148,6 +148,9 @@ def _send_runner(ctx: Ctx) -> bool:
     except NestedError as exc:
         log.warning("не подготовил JIT: %s", exc)
         return False
+    except Exception:
+        log.exception("не подготовил JIT")
+        return False
     if not dispatch(ctx.home, ctx.repo, jit, ctx.branch):
         return False
     ctx.fleet.born()
@@ -287,6 +290,8 @@ def _reconcile_loop(ctx: Ctx, stop: threading.Event) -> None:
             _scale(ctx, ctx.api.statistics(ctx.scale_set_id), "сверка")
         except NestedError as exc:
             log.debug("не сверил флот: %s", exc)
+        except Exception:
+            log.exception("сверка флота сорвалась")
 
 
 def _fresh(ctx: Ctx, session: Session) -> Session:
