@@ -64,7 +64,9 @@ def main(argv: Sequence[str]) -> int:
 
     wrong = [repo for repo in argv if not REPO_PATTERN.fullmatch(repo)]
     if wrong:
-        sys.stderr.write(f"ожидается owner/name, получено: {' '.join(wrong)}\n{_USAGE}\n")
+        sys.stderr.write(
+            f"ожидается owner/name, получено: {' '.join(wrong)}\n{_USAGE}\n"
+        )
         return _EXIT_USAGE
 
     stop = install_stop_handler()
