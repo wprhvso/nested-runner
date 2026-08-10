@@ -7,6 +7,7 @@ import urllib.parse
 import uuid
 from typing import Any
 
+from nested_runner.budget import REST
 from nested_runner.config import (
     API_VERSION,
     CAPACITY_HEADER,
@@ -19,7 +20,7 @@ from nested_runner.config import (
 )
 from nested_runner.errors import HttpError, NestedError
 from nested_runner.gh import registration_token
-from nested_runner.http import jwt_expiry, request
+from nested_runner.http import jwt_expiry, pause, request
 from nested_runner.models import Session, Stats
 
 log = logging.getLogger("nested")
@@ -47,11 +48,14 @@ class ScaleSetApi:
             self._fetch_token()
 
     def _fetch_token(self) -> None:
+        # Единственная точка, где pipeline API оплачивается REST-лимитом:
+        # и registration token, и сама регистрация идут на api.github.com.
         info = request(
             "POST",
             f"{api_base()}/actions/runner-registration",
             auth=f"RemoteAuth {registration_token(self.repo)}",
             body={"url": f"{server_url()}/{self.repo}", "runnerEvent": "register"},
+            budget=REST,
         )
         if not isinstance(info, dict) or "token" not in info or "url" not in info:
             raise NestedError("runner-registration не вернул token/url")
@@ -227,7 +231,7 @@ class ScaleSetApi:
             log.warning(
                 "на scale set висит активная сессия, жду %s с", SESSION_CONFLICT_WAIT
             )
-            time.sleep(SESSION_CONFLICT_WAIT)
+            pause(SESSION_CONFLICT_WAIT)
             return self.open_session(scale_set_id, owner)
 
     def poll(

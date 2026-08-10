@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from nested_runner.api import ScaleSetApi
+from nested_runner.budget import REST
 from nested_runner.config import (
     DISPATCH_WORKERS,
     FLEET_INTERVAL,
@@ -18,6 +19,7 @@ from nested_runner.config import (
     JOB_COMPLETED,
     MAX_LOOP_FAILURES,
     QUEUE_MESSAGE_TYPE,
+    RATE_WAIT_CAP,
     RUN_STATUSES,
     SESSION_STATUSES,
     TOKEN_SKEW,
@@ -25,7 +27,7 @@ from nested_runner.config import (
     scale_set_name,
 )
 from nested_runner.crypto import encrypt
-from nested_runner.errors import HttpError, NestedError
+from nested_runner.errors import HttpError, NestedError, RateLimited
 from nested_runner.fleet import Fleet
 from nested_runner.gh import (
     cancel_run,
@@ -37,7 +39,7 @@ from nested_runner.gh import (
     list_runs,
     preflight,
 )
-from nested_runner.http import backoff
+from nested_runner.http import STOP, backoff
 from nested_runner.models import Stats
 
 if TYPE_CHECKING:
@@ -68,7 +70,9 @@ class Ctx:
 
 
 def install_stop_handler() -> threading.Event:
-    stop = threading.Event()
+    # Тот же самый Event, на котором спит HTTP-слой: иначе сигнал приходится
+    # ждать столько, сколько длится самый долгий бэкофф внутри запроса.
+    stop = STOP
 
     def handler(signum: int, _frame: FrameType | None) -> None:
         if stop.is_set():
@@ -180,6 +184,19 @@ def _scale(ctx: Ctx, stats: Stats, note: str, taken: int = 0) -> None:
         if not need:
             return
 
+        waiting = REST.shut()
+        if waiting:
+            # Диспатч — это REST, и пока окно закрыто, восемь параллельных
+            # попыток дадут восемь 403 и ни одного раннера. Job'ы подождут
+            # в очереди: она на другом хосте и от лимита не зависит.
+            log.warning(
+                "нужно раннеров %s, но лимит REST закрыт ещё %.0f с (%s)",
+                need,
+                waiting,
+                REST.state(),
+            )
+            return
+
         started = time.monotonic()
         sent = _dispatch_many(ctx, need)
         log.info(
@@ -257,15 +274,25 @@ def _ack(ctx: Ctx, session: Session, message: dict[str, Any]) -> None:
 
 def _alive_runs(ctx: Ctx) -> set[int]:
     found = {
-        int(item["id"])
+        run_id
         for state in RUN_STATUSES
-        for item in list_runs(ctx.home, ctx.repo, state)
+        for run_id in list_runs(ctx.home, ctx.repo, state)
     }
     return found - ctx.orphans
 
 
 def _reconcile(ctx: Ctx) -> None:
     ctx.fleet.observe(_alive_runs(ctx))
+
+
+def _worth_it(ctx: Ctx) -> bool:
+    """Стоит ли платить за список запусков прямо сейчас."""
+    if not ctx.fleet.tracking():
+        return False
+    if REST.spend(f"сверка {ctx.repo}", len(RUN_STATUSES)):
+        return True
+    log.debug("сверку придержал бюджет REST: %s", REST.state())
+    return False
 
 
 def _evict(ctx: Ctx) -> None:
@@ -283,11 +310,16 @@ def _evict(ctx: Ctx) -> None:
 def _reconcile_loop(ctx: Ctx, stop: threading.Event) -> None:
     while not stop.wait(FLEET_INTERVAL):
         try:
-            _reconcile(ctx)
-            # Сверка меняет ёмкость: догорел запуск, умер диспатч. Главный цикл
-            # в это время спит в long poll, и без решения тут job простоял бы до
-            # конца окна опроса — ровно та тишина, ради которой всё делалось.
+            if _worth_it(ctx):
+                _reconcile(ctx)
+            # Решение принимаем каждый круг, даже когда список запусков решили
+            # не спрашивать: статистика приходит из pipeline API, у которого
+            # своего лимита нет. Ёмкость меняется и без нас — догорел запуск,
+            # умер диспатч, — а главный цикл в это время спит в long poll, и
+            # без решения тут job простоял бы до конца окна опроса.
             _scale(ctx, ctx.api.statistics(ctx.scale_set_id), "сверка")
+        except RateLimited as exc:
+            log.debug("сверка ждёт сброса лимита: %s", exc)
         except NestedError as exc:
             log.debug("не сверил флот: %s", exc)
         except Exception:
@@ -319,6 +351,14 @@ def _recover(
         return session, -1
 
 
+def _hold(exc: RateLimited, stop: threading.Event) -> None:
+    # Окно ждём целиком, но кусками: проспать час одним махом значит не заметить
+    # ни остановки, ни того, что лимит открылся раньше обещанного.
+    waiting = min(max(exc.retry_in, 1.0), RATE_WAIT_CAP)
+    log.warning("лимит REST выбран, жду %.0f с — %s", waiting, REST.state())
+    stop.wait(waiting)
+
+
 def _tick(ctx: Ctx, session: Session, last_id: int, stop: threading.Event) -> int:
     try:
         message = ctx.api.poll(session, last_id, ctx.limit)
@@ -329,7 +369,7 @@ def _tick(ctx: Ctx, session: Session, last_id: int, stop: threading.Event) -> in
         # long poll стоит целого окна тишины. Пауза тут затем, чтобы мгновенно
         # падающий опрос не раскрутил цикл в молотилку по API.
         log.warning("опрос очереди не удался: %s", exc)
-        time.sleep(backoff(1))
+        stop.wait(backoff(1))
         message = None
 
     if stop.is_set():
@@ -351,20 +391,14 @@ def _tick(ctx: Ctx, session: Session, last_id: int, stop: threading.Event) -> in
 
 
 def _cleanup(ctx: Ctx, session: Session | None) -> None:
+    # Сначала бесплатное и главное. Сессия и scale set живут в pipeline API,
+    # REST-лимит их не трогает, а без scale set живые раннеры всё равно ничего
+    # не возьмут — это и есть основная часть уборки.
     if session is not None:
         try:
             ctx.api.close_session(ctx.scale_set_id, session)
         except NestedError as exc:
             log.warning("сессия не закрылась: %s", exc)
-
-    cancelled = 0
-    try:
-        for state in RUN_STATUSES:
-            for item in list_runs(ctx.home, ctx.repo, state):
-                if cancel_run(ctx.home, int(item["id"])):
-                    cancelled += 1
-    except NestedError as exc:
-        log.warning("не перечислил запуски раннеров: %s", exc)
 
     removed_set = False
     try:
@@ -372,6 +406,28 @@ def _cleanup(ctx: Ctx, session: Session | None) -> None:
         removed_set = True
     except NestedError as exc:
         log.warning("scale set не удалён: %s", exc)
+
+    waiting = REST.shut()
+    if waiting:
+        # Гасить запуски нечем: лимит выбран, и полсотни заведомо отказанных
+        # запросов ничего не изменят. Раннеры эфемерные и упрутся в свой
+        # timeout-minutes сами.
+        log.warning(
+            "лимит REST закрыт ещё %.0f с — запуски и раннеров не подчищаю "
+            "(scale-set-removed=%s), они догорят сами",
+            waiting,
+            removed_set,
+        )
+        return
+
+    cancelled = 0
+    try:
+        for state in RUN_STATUSES:
+            for run_id in list_runs(ctx.home, ctx.repo, state):
+                if cancel_run(ctx.home, run_id):
+                    cancelled += 1
+    except NestedError as exc:
+        log.warning("не перечислил запуски раннеров: %s", exc)
 
     removed = 0
     try:
@@ -455,6 +511,14 @@ def run(repo: str, stop: threading.Event) -> int:
                 last_id = _tick(ctx, session, last_id, stop)
                 failures = 0
 
+            except RateLimited as exc:
+                # Сбоем это не считаем и сессию не трогаем: очередь job'ов
+                # живёт на другом хосте и про REST-лимит ничего не знает.
+                # Рвать её тут значит платить за пересоздание теми запросами,
+                # которых как раз и не осталось.
+                failures = 0
+                _hold(exc, stop)
+
             except HttpError as exc:
                 if exc.status not in SESSION_STATUSES:
                     raise
@@ -467,7 +531,7 @@ def run(repo: str, stop: threading.Event) -> int:
                 if failures > 1:
                     # Штатное протухание токена лечим сразу, но заклинившую
                     # сессию перестаём дёргать без передышки.
-                    time.sleep(backoff(failures))
+                    stop.wait(backoff(failures))
 
             except NestedError as exc:
                 failures += 1
@@ -480,7 +544,7 @@ def run(repo: str, stop: threading.Event) -> int:
                     MAX_LOOP_FAILURES,
                     exc,
                 )
-                time.sleep(delay)
+                stop.wait(delay)
     finally:
         done.set()
         _cleanup(ctx, session)
