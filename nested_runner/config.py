@@ -22,6 +22,8 @@ MAX_ATTEMPTS = 5
 MAX_LOOP_FAILURES = 5
 BACKOFF_BASE = 1.5
 BACKOFF_CAP = 30.0
+RESTART_CAP = 60.0
+RESTART_HEALTHY = 300.0
 
 # Тип сообщения очереди и типы job-сообщений внутри тела.
 QUEUE_MESSAGE_TYPE = "RunnerScaleSetJobMessages"
