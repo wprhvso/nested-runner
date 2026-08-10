@@ -3,11 +3,13 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import time
 from typing import TYPE_CHECKING
 
-from nested_runner.config import debug
+from nested_runner.config import REPO_PATTERN, RESTART_CAP, RESTART_HEALTHY, debug
 from nested_runner.controller import install_stop_handler, run
 from nested_runner.errors import NestedError
+from nested_runner.http import backoff
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -20,12 +22,32 @@ _EXIT_ERROR = 1
 _EXIT_INTERRUPTED = 130
 
 
-def _worker(repo: str, stop: threading.Event, results: dict[str, int]) -> None:
+def _attempt(repo: str, stop: threading.Event, results: dict[str, int]) -> bool:
     try:
         results[repo] = run(repo, stop)
     except NestedError as exc:
         log.error("%s", exc)
-        results[repo] = _EXIT_ERROR
+    except Exception:
+        log.exception("непредвиденный сбой")
+    else:
+        return True
+    results[repo] = _EXIT_ERROR
+    return False
+
+
+def _worker(repo: str, stop: threading.Event, results: dict[str, int]) -> None:
+    failures = 0
+    while not stop.is_set():
+        started = time.monotonic()
+        if _attempt(repo, stop, results):
+            return
+        if time.monotonic() - started >= RESTART_HEALTHY:
+            failures = 0
+        failures += 1
+        delay = backoff(failures, cap=RESTART_CAP)
+        log.warning("перезапуск через %.1f с (сбой %s подряд)", delay, failures)
+        if stop.wait(delay):
+            return
 
 
 def main(argv: Sequence[str]) -> int:
@@ -38,6 +60,11 @@ def main(argv: Sequence[str]) -> int:
 
     if not argv:
         sys.stderr.write(_USAGE + "\n")
+        return _EXIT_USAGE
+
+    wrong = [repo for repo in argv if not REPO_PATTERN.fullmatch(repo)]
+    if wrong:
+        sys.stderr.write(f"ожидается owner/name, получено: {' '.join(wrong)}\n{_USAGE}\n")
         return _EXIT_USAGE
 
     stop = install_stop_handler()
