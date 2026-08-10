@@ -32,8 +32,6 @@ let
       NESTED_DEBUG = if cfg.debug then "1" else null;
       GITHUB_API_URL = cfg.apiUrl;
       GITHUB_SERVER_URL = cfg.serverUrl;
-      # `gh` wants a home to look for its config in, and the standard library
-      # only finds the CA bundle when OpenSSL is pointed at it.
       HOME = "%S/nested-runner";
       SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
     }
@@ -204,11 +202,8 @@ in
         StateDirectory = "nested-runner";
         StateDirectoryMode = "0700";
         EnvironmentFile = cfg.environmentFiles;
-        # The public key is looked up relative to the working directory.
         WorkingDirectory = cfg.package.keys;
-        ExecStart = "${cfg.package}/bin/nested-runner ${
-          concatMapStringsSep " " escapeShellArg cfg.repos
-        }";
+        ExecStart = "${cfg.package}/bin/nested-runner ${concatMapStringsSep " " escapeShellArg cfg.repos}";
         Restart = "always";
         RestartSec = "10s";
         TimeoutStopSec = "${toString (cfg.gracefulShutdownTimeout + 30)}s";

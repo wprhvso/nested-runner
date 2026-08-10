@@ -38,7 +38,6 @@ class ScaleSetApi:
         self._pipeline_url: str | None = None
         self._token: str = ""
         self._token_exp: float = 0.0
-        # Пачку раннеров диспатчим параллельно, значит JWT могут дёрнуть разом.
         self._auth_lock: threading.Lock = threading.Lock()
 
     def _authenticate(self, *, force: bool = False) -> None:
@@ -94,7 +93,6 @@ class ScaleSetApi:
         url = f"{self.pipeline_url}/_apis/runtime/{path}"
         url += ("&" if "?" in url else "?") + f"api-version={API_VERSION}"
         if auth is not None:
-            # Токен очереди: 401 значит «истёк», обновлять сессию — забота вызывающего.
             return request(method, url, auth=auth, body=body, **kw)
         try:
             return request(method, url, auth=f"Bearer {self.token}", body=body, **kw)
@@ -121,8 +119,6 @@ class ScaleSetApi:
         return None
 
     def ensure_scale_set(self, name: str) -> tuple[dict[str, Any], bool]:
-        # Второе значение — создали ли заново. Если да, раннеры из прошлой жизни
-        # смотрят в удалённый scale set и job уже не возьмут.
         existing = self.find_scale_set(name)
         if existing:
             log.info("scale set %r уже есть, id=%s", name, existing["id"])
@@ -192,8 +188,6 @@ class ScaleSetApi:
         return session
 
     def refresh_session(self, scale_set_id: int, session: Session) -> Session:
-        # Дешёвая замена протухшего токена очереди: sessionId и lastMessageId
-        # остаются в силе, пересоздавать сессию (и ждать 409) не нужно.
         raw = self.call(
             "PATCH",
             f"runnerscalesets/{scale_set_id}/sessions/{session.session_id}",
@@ -248,13 +242,9 @@ class ScaleSetApi:
             url,
             auth=f"Bearer {session.queue_token}",
             timeout=POLL_TIMEOUT,
-            # Одна попытка: повтор внутри удвоил бы окно тишины, сорванный
-            # опрос вызывающий переживёт сам.
             attempts=1,
             extra={
-                # Очередь ждёт api-version в Accept, не в query.
                 "Accept": f"application/json; api-version={API_VERSION}",
-                # Сколько раннеров мы вообще способны поднять — сервер учитывает.
                 CAPACITY_HEADER: str(capacity),
             },
         )
@@ -278,7 +268,6 @@ class ScaleSetApi:
     def acquire_jobs(
         self, scale_set_id: int, session: Session, request_ids: list[int]
     ) -> int:
-        # Одна пачка на все job'ы вместо запроса на каждую.
         if not request_ids:
             return 0
         raw = self.call(

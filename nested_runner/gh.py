@@ -74,8 +74,6 @@ def gh(*args: str, check: bool = True, timeout: int = GH_TIMEOUT) -> str:
 
 @functools.cache
 def token() -> str:
-    # Всё, что на горячем пути, ходит в REST напрямую: спавнить gh на каждый
-    # вызов — это лишние сотни миллисекунд и ещё один сетевой round trip внутри.
     value = os.environ.get("GH_TOKEN", "").strip() or gh("auth", "token").strip()
     if not value:
         raise NestedError("не нашёл токен: ни GH_TOKEN, ни gh auth token")
@@ -219,7 +217,6 @@ def _branch(payload: Any) -> str:
 def default_branch(repo: str) -> str:
     value = polled(f"repos/{repo}", "ветка", _branch)
     if not value:
-        # Иначе диспатч будет молча падать на каждой попытке.
         raise NestedError(f"не определил ветку по умолчанию для {repo}")
     return value
 

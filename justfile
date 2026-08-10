@@ -70,24 +70,14 @@ test:
     sleep 3
     gh run watch --repo "$repo" --exit-status
 
-qa: yamllint actionlint python
+qa: shell python
 
-yamllint:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v yamllint > /dev/null || { echo "yamllint не найден — yaml не проверен"; exit 0; }
-    yamllint .github/workflows
+shell:
+    bash <(curl -fsSL https://raw.githubusercontent.com/wprhvso/qa-shell/v1/scripts/local.sh)
 
-actionlint:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v actionlint > /dev/null || { echo "actionlint не найден — workflow не проверены"; exit 0; }
-    actionlint
-
-# Настройки QA живут в wprhvso/qa-python — скрипт подкладывает те же конфиги,
-# что экшен использует в CI, и запускает те же команды.
 python:
     bash <(curl -fsSL https://raw.githubusercontent.com/wprhvso/qa-python/v1/scripts/local.sh)
 
 fix:
+    bash <(curl -fsSL https://raw.githubusercontent.com/wprhvso/qa-shell/v1/scripts/local.sh) --fix
     bash <(curl -fsSL https://raw.githubusercontent.com/wprhvso/qa-python/v1/scripts/local.sh) --fix

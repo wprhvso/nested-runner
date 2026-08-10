@@ -3,7 +3,7 @@ name: ci
 on: push
 
 jobs:
-  qa:
+  python:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -16,33 +16,18 @@ jobs:
         with:
           checks: ${{ matrix.check }}
 
-  workflows:
+  nix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: wprhvso/qa-nix@v1
+        with:
+          checks: fmt,statix,deadnix,flake
+
+  shell:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install tools
-        run: |
-          set -euo pipefail
-          pip install --disable-pip-version-check --quiet yamllint
-          bash <(curl -fsSL --retry 3 --retry-all-errors \
-            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          echo "$PWD" >> "$GITHUB_PATH"
-
-      - run: actionlint -color
-
-  nix:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: cachix/install-nix-action@v31
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-
-      - name: Flake check
-        run: nix flake check -L
+      - uses: wprhvso/qa-shell@v1
