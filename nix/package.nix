@@ -38,8 +38,6 @@ let
 
   venv = pythonSet.mkVirtualEnv "nested-runner-env" workspace.deps.default;
 
-  # The controller reads the age recipient from `keys/nested.pub` next to its
-  # working directory, so the key ships as its own directory to point at.
   keys = stdenvNoCC.mkDerivation {
     pname = "nested-runner-keys";
     inherit (pythonSet.nested-runner) version;
