@@ -85,6 +85,35 @@ runs-on: nested
 env -C /opt/nested-runner docker compose pull && env -C /opt/nested-runner docker compose up -d
 ```
 
+## NixOS
+
+Флейк отдаёт пакет и модуль, так что на NixOS контейнер не нужен — контроллер
+живёт обычным systemd-юнитом, `gh` и `age` приезжают вместе с ним.
+
+```nix
+{
+  inputs.nested-runner.url = "github:wprhvso/nested-runner";
+
+  # ...
+
+  modules = [ inputs.nested-runner.nixosModules.default ];
+}
+```
+
+```nix
+{
+  services.nested-runner = {
+    enable = true;
+    repos = [ "owner/target" ];
+    environmentFiles = [ "/var/lib/secrets/nested-runner" ];
+  };
+}
+```
+
+Токен — в файле из `environmentFiles`, одной строкой `GH_TOKEN=ghp_...`.
+Остальное настраивается опциями: `homeRepo`, `scaleSet`, `maxRunners`,
+`workflow`, `debug`.
+
 ## Команды
 
 | Команда | Что делает |
