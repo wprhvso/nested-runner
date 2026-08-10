@@ -25,19 +25,14 @@ BACKOFF_CAP = 30.0
 RESTART_CAP = 60.0
 RESTART_HEALTHY = 300.0
 
-# Тип сообщения очереди и типы job-сообщений внутри тела.
 QUEUE_MESSAGE_TYPE = "RunnerScaleSetJobMessages"
 JOB_AVAILABLE = "JobAvailable"
 JOB_COMPLETED = "JobCompleted"
 CAPACITY_HEADER = "X-ScaleSetMaxCapacity"
 
-# Диспатч раннера — сеть плюс age, поэтому пачку отправляем параллельно.
-# Повторять диспатч нельзя: тот же JIT-конфиг уехал бы в два запуска.
 DISPATCH_WORKERS = 8
 DISPATCH_ATTEMPTS = 1
 
-# Как часто фоновый сверщик пересчитывает живые запуски раннеров и сколько
-# ждём появления запуска, прежде чем счесть диспатч мертворождённым.
 FLEET_INTERVAL = 15.0
 FLEET_TTL = 120.0
 RUN_STATUSES = ("queued", "in_progress")

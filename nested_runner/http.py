@@ -69,9 +69,6 @@ def request(
             last = HttpError(exc.code, url, detail)
             delay = backoff(attempt, exc.headers.get("Retry-After"))
         except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
-            # OSError накрывает URLError и TimeoutError, HTTPException —
-            # оборванный keep-alive: GitHub закрывает соединения когда захочет,
-            # и голый RemoteDisconnected раньше убивал поток целиком.
             last = exc
             delay = backoff(attempt)
 

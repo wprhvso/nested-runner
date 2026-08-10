@@ -58,8 +58,6 @@ def gh(*args: str, check: bool = True, timeout: int = GH_TIMEOUT) -> str:
 
 @functools.cache
 def token() -> str:
-    # Всё, что на горячем пути, ходит в REST напрямую: спавнить gh на каждый
-    # вызов — это лишние сотни миллисекунд и ещё один сетевой round trip внутри.
     value = os.environ.get("GH_TOKEN", "").strip() or gh("auth", "token").strip()
     if not value:
         raise NestedError("не нашёл токен: ни GH_TOKEN, ни gh auth token")
@@ -103,7 +101,6 @@ def preflight(repo: str, home: str) -> None:
 
     gh("auth", "status")
 
-    # Пробы идут тем же путём, которым потом пойдёт горячий цикл.
     rest("GET", f"repos/{home}/actions/workflows/{runner_workflow()}")
 
     rest("GET", f"repos/{repo}")
@@ -127,14 +124,11 @@ def default_branch(repo: str) -> str:
     payload = rest("GET", f"repos/{repo}") or {}
     value = str(payload.get("default_branch", "")).strip()
     if not value:
-        # Иначе диспатч будет молча падать на каждой попытке.
         raise NestedError(f"не определил ветку по умолчанию для {repo}")
     return value
 
 
 def list_runs(home: str, target: str, status: str) -> list[dict[str, Any]]:
-    # Страницы обходим: в home-репо живут запуски всех целей, и обрезать
-    # список до фильтра значит потерять свои же живые раннеры.
     marker = f"nested {target} "
     found: list[dict[str, Any]] = []
     for page in range(1, RUNS_PAGES + 1):

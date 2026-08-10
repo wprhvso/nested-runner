@@ -61,9 +61,7 @@ class Ctx:
     branch: str
     limit: int
     fleet: Fleet
-    # Запуски от прошлой жизни контроллера: живые, но бесполезные.
     orphans: set[int]
-    # Решать умеют два потока — главный цикл и сверщик. По одному за раз.
     scaling: threading.Lock
 
 
@@ -121,8 +119,6 @@ def _read_jobs(raw_body: str) -> Batch:
     for item in items:
         if not isinstance(item, dict):
             continue
-        # Сравниваем подстрокой: тип приходит и как JobAvailable, и как
-        # RunnerScaleSetJobAvailable — ловим любую форму.
         kind = str(item.get("messageType") or "")
         request_id = item.get("runnerRequestId")
         log.info(
@@ -135,8 +131,6 @@ def _read_jobs(raw_body: str) -> Batch:
         )
         if request_id and JOB_AVAILABLE in kind:
             available.append(int(request_id))
-        # Отменённый job тоже приходит как JobCompleted, только раннера ему
-        # никто не давал — списывать место нельзя, поедет лишний раннер.
         if JOB_COMPLETED in kind and item.get("runnerName"):
             retired += 1
     return Batch(available, retired)
@@ -169,8 +163,6 @@ def _dispatch_many(ctx: Ctx, count: int) -> int:
 
 
 def _scale(ctx: Ctx, stats: Stats, note: str, taken: int = 0) -> None:
-    # taken — job'ы, которые мы только что забрали: статистика в сообщении их
-    # ещё не видит, но раннеры им нужны уже сейчас.
     with ctx.scaling:
         want = min(ctx.limit, stats.assigned + taken)
         have = ctx.fleet.size()
@@ -195,8 +187,6 @@ def _acquire(ctx: Ctx, session: Session, ids: list[int]) -> int:
     except HttpError as exc:
         if exc.status == _UNAUTHORIZED:
             raise
-        # Job успели отменить или отдать другому — это не повод считать сессию
-        # мёртвой и не повод ломать цикл: остаток подберёт страховка на тишине.
         log.warning("не забрал job'ы %s: %s", ids, exc)
         return 0
     log.info("забрал job'ов: %s из %s", taken, len(ids))
@@ -208,18 +198,13 @@ def _handle(ctx: Ctx, session: Session, message: dict[str, Any]) -> None:
     if kind != QUEUE_MESSAGE_TYPE:
         log.debug("пропускаю сообщение типа %r", kind)
         return
-    # Статистика приезжает внутри сообщения — она свежая по определению,
-    # отдельный GET на scale set врёт и стоит целого цикла long poll.
     raw = message.get("statistics")
     if raw is None:
-        # Такого быть не должно, но принять нули значит молча съесть job.
         log.warning("в сообщении нет статистики, спрашиваю scale set")
         stats = ctx.api.statistics(ctx.scale_set_id)
     else:
         stats = Stats.parse(raw)
     batch = _read_jobs(str(message.get("body") or ""))
-    # Сначала забрать: если сорвётся, сообщение придёт снова, и списывать
-    # отработавших второй раз не придётся.
     taken = _acquire(ctx, session, batch.available)
     ctx.fleet.retired(batch.retired)
     _scale(ctx, stats, "сообщение", taken)
@@ -238,8 +223,6 @@ def _pick_up(ctx: Ctx, session: Session, stats: Stats, note: str) -> None:
 
 
 def _idle(ctx: Ctx, session: Session) -> None:
-    # Очередь молчит: подстраховываемся от потерянного сообщения. Это уже не
-    # горячий путь, тут лишние запросы не страшны.
     _pick_up(ctx, session, ctx.api.statistics(ctx.scale_set_id), "тишина")
 
 
@@ -250,8 +233,6 @@ def _ack(ctx: Ctx, session: Session, message: dict[str, Any]) -> None:
     try:
         ctx.api.delete_message(session, int(message_id))
     except NestedError as exc:
-        # Подтверждаем уже после решения: round trip не должен стоять
-        # между сообщением и раскидыванием раннеров.
         log.warning("не подтвердил сообщение %s: %s", message_id, exc)
 
 
@@ -269,9 +250,6 @@ def _reconcile(ctx: Ctx) -> None:
 
 
 def _evict(ctx: Ctx) -> None:
-    # Scale set создан заново — раннеры прошлой жизни зарегистрированы
-    # в удалённом и job не возьмут. Считать их ёмкостью значит заставить
-    # первые job'ы ждать, пока догорят чужие запуски.
     stale = _alive_runs(ctx)
     if not stale:
         return
@@ -284,9 +262,6 @@ def _reconcile_loop(ctx: Ctx, stop: threading.Event) -> None:
     while not stop.wait(FLEET_INTERVAL):
         try:
             _reconcile(ctx)
-            # Сверка меняет ёмкость: догорел запуск, умер диспатч. Главный цикл
-            # в это время спит в long poll, и без решения тут job простоял бы до
-            # конца окна опроса — ровно та тишина, ради которой всё делалось.
             _scale(ctx, ctx.api.statistics(ctx.scale_set_id), "сверка")
         except NestedError as exc:
             log.debug("не сверил флот: %s", exc)
@@ -304,8 +279,6 @@ def _fresh(ctx: Ctx, session: Session) -> Session:
 def _recover(
     ctx: Ctx, session: Session, owner: str, status: int
 ) -> tuple[Session, int]:
-    # Ничего не выбрасываем: исключение из except-ветки ушло бы мимо счётчика
-    # попыток, вынесло бы цикл целиком и утащило за собой всех живых раннеров.
     if status == _UNAUTHORIZED:
         try:
             return ctx.api.refresh_session(ctx.scale_set_id, session), -1
@@ -325,9 +298,6 @@ def _tick(ctx: Ctx, session: Session, last_id: int, stop: threading.Event) -> in
     except HttpError:
         raise
     except NestedError as exc:
-        # Опрос сорвался — решение всё равно принимаем, иначе один сорванный
-        # long poll стоит целого окна тишины. Пауза тут затем, чтобы мгновенно
-        # падающий опрос не раскрутил цикл в молотилку по API.
         log.warning("опрос очереди не удался: %s", exc)
         time.sleep(backoff(1))
         message = None
@@ -340,7 +310,6 @@ def _tick(ctx: Ctx, session: Session, last_id: int, stop: threading.Event) -> in
 
     fresh_id = int(message.get("messageId") or 0)
     if fresh_id and fresh_id <= last_id:
-        # Уже обработали в прошлый раз, просто не подтвердили.
         log.debug("сообщение %s уже обработано, подтверждаю снова", fresh_id)
         _ack(ctx, session, message)
         return last_id
@@ -428,8 +397,6 @@ def run(repo: str, stop: threading.Event) -> int:
     session: Session | None = None
     last_id = 0
     failures = 0
-    # Свой стоп-сигнал: соседние цели живут своей жизнью, и сверщик этой
-    # не должен тикать по API после того, как её цикл закончился.
     done = threading.Event()
     watcher = threading.Thread(
         target=_reconcile_loop,
@@ -446,7 +413,6 @@ def run(repo: str, stop: threading.Event) -> int:
 
         session = ctx.api.reopen_session(ctx.scale_set_id, None, owner)
         watcher.start()
-        # Сессия отдаёт статистику сразу — не ждём первого сообщения.
         _pick_up(ctx, session, session.stats, "старт")
 
         while not stop.is_set():
@@ -465,8 +431,6 @@ def run(repo: str, stop: threading.Event) -> int:
                 if reset >= 0:
                     last_id = reset
                 if failures > 1:
-                    # Штатное протухание токена лечим сразу, но заклинившую
-                    # сессию перестаём дёргать без передышки.
                     time.sleep(backoff(failures))
 
             except NestedError as exc:

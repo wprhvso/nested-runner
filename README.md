@@ -2,11 +2,9 @@
 
 Self-hosted раннеры GitHub Actions, которые сами крутятся внутри GitHub Actions (`ubuntu-latest`). Матрёшка.
 
-Зачем: доказать, что так можно. Кто потащит в прод — тот лох.
-
 ## Как это работает
 
-Заводит в целевом репо эфемерный runner scale set и слушает его очередь. Пришёл job — контроллер забирает его и диспатчит `runner.yml` у себя. Тот поднимает внутри `ubuntu-latest`, регистрирует его в scale set целевого репо по JIT-конфигу, отрабатывает один job и умирает. Больше `NESTED_MAX` раннеров одновременно не бывает. `docker compose down` сносит scale set, раннеров и висящие запуски.
+Контроллер заводит в целевом репо эфемерный runner scale set и слушает его очередь. Пришёл job — контроллер забирает его и диспатчит `runner.yml` у себя. Тот поднимает раннер внутри `ubuntu-latest`, регистрирует его в scale set целевого репо по JIT-конфигу, отрабатывает один job и умирает. Больше `NESTED_MAX` раннеров одновременно не бывает. `docker compose down` сносит scale set, раннеров и висящие запуски.
 
 ## Что нажать
 
@@ -32,12 +30,18 @@ services:
     command: ["owner/target"]
     environment:
       GH_TOKEN: ${GH_TOKEN:?нужен токен в .env}
-      # GH_REPO: wprhvso/nested-runner
-      # NESTED_SCALE_SET: nested
-      # NESTED_MAX: 20
-      # NESTED_WORKFLOW: runner.yml
-      # NESTED_DEBUG: 1
 ```
+
+Обязателен только `GH_TOKEN`, остальное — по желанию:
+
+| Переменная | По умолчанию | Что задаёт |
+|---|---|---|
+| `GH_TOKEN` | — | токен со скоупами `repo` и `workflow` |
+| `GH_REPO` | `wprhvso/nested-runner` | репозиторий, где диспатчится `runner.yml` |
+| `NESTED_SCALE_SET` | `nested` | имя scale set в целевом репозитории |
+| `NESTED_MAX` | `20` | предел раннеров на одну цель |
+| `NESTED_WORKFLOW` | `runner.yml` | workflow, поднимающий один раннер |
+| `NESTED_DEBUG` | пусто | подробный лог очереди и диспатчей |
 
 Токен — рядом, в `/opt/nested-runner/.env`:
 
@@ -87,14 +91,11 @@ env -C /opt/nested-runner docker compose pull && env -C /opt/nested-runner docke
 
 ## NixOS
 
-Флейк отдаёт пакет и модуль, так что на NixOS контейнер не нужен — контроллер
-живёт обычным systemd-юнитом, `gh` и `age` приезжают вместе с ним.
+Флейк отдаёт пакет и модуль: контроллер живёт systemd-юнитом, `gh` и `age` приезжают вместе с ним.
 
 ```nix
 {
   inputs.nested-runner.url = "github:wprhvso/nested-runner";
-
-  # ...
 
   modules = [ inputs.nested-runner.nixosModules.default ];
 }
@@ -123,5 +124,6 @@ env -C /opt/nested-runner docker compose pull && env -C /opt/nested-runner docke
 | `just version [vX.Y.Z]` | показать или проставить версию |
 | `just tag` | тег `vX.Y.Z` и пуш |
 | `just test` | тестовый workflow |
-| `just qa` | yamllint, actionlint, ruff, basedpyright |
+| `just qa` | qa-shell и qa-python теми же конфигами, что в CI |
+| `just fix` | то же с автоправкой |
 | `just keys` | сгенерировать пару ключей, уже сделано |
