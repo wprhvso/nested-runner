@@ -179,7 +179,9 @@ def _scale(ctx: Ctx, stats: Stats, note: str, taken: int = 0) -> None:
 
         started = time.monotonic()
         sent = _dispatch_many(ctx, need)
-        log.info("раскидал раннеров %s/%s за %.1f с", sent, need, time.monotonic() - started)
+        log.info(
+            "раскидал раннеров %s/%s за %.1f с", sent, need, time.monotonic() - started
+        )
 
 
 def _acquire(ctx: Ctx, session: Session, ids: list[int]) -> int:
@@ -252,7 +254,9 @@ def _ack(ctx: Ctx, session: Session, message: dict[str, Any]) -> None:
 
 def _alive_runs(ctx: Ctx) -> set[int]:
     found = {
-        int(item["id"]) for state in RUN_STATUSES for item in list_runs(ctx.home, ctx.repo, state)
+        int(item["id"])
+        for state in RUN_STATUSES
+        for item in list_runs(ctx.home, ctx.repo, state)
     }
     return found - ctx.orphans
 
@@ -292,7 +296,9 @@ def _fresh(ctx: Ctx, session: Session) -> Session:
     return ctx.api.refresh_session(ctx.scale_set_id, session)
 
 
-def _recover(ctx: Ctx, session: Session, owner: str, status: int) -> tuple[Session, int]:
+def _recover(
+    ctx: Ctx, session: Session, owner: str, status: int
+) -> tuple[Session, int]:
     # Ничего не выбрасываем: исключение из except-ветки ушло бы мимо счётчика
     # попыток, вынесло бы цикл целиком и утащило за собой всех живых раннеров.
     if status == _UNAUTHORIZED:
@@ -364,7 +370,9 @@ def _cleanup(ctx: Ctx, session: Session | None) -> None:
 
     removed = 0
     try:
-        removed = sum(delete_runner(ctx.repo, int(item["id"])) for item in list_runners(ctx.repo))
+        removed = sum(
+            delete_runner(ctx.repo, int(item["id"])) for item in list_runners(ctx.repo)
+        )
     except NestedError as exc:
         log.warning("не перечислил раннеров: %s", exc)
 

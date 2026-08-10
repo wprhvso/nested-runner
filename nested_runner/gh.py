@@ -46,7 +46,9 @@ def gh(*args: str, check: bool = True, timeout: int = GH_TIMEOUT) -> str:
     except FileNotFoundError:
         raise NestedError(_INSTALL_HINT) from None
     except subprocess.TimeoutExpired:
-        raise NestedError(f"gh {' '.join(args[:2])} не ответил за {timeout} с") from None
+        raise NestedError(
+            f"gh {' '.join(args[:2])} не ответил за {timeout} с"
+        ) from None
 
     if check and proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip()
@@ -80,7 +82,9 @@ def current_repo() -> str:
     if home_repo_configured():
         return fallback
     try:
-        out = gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
+        out = gh(
+            "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"
+        ).strip()
     except NestedError:
         out = ""
     return out or fallback
@@ -135,7 +139,9 @@ def list_runs(home: str, target: str, status: str) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     for page in range(1, RUNS_PAGES + 1):
         query = f"?status={status}&per_page={RUNS_PER_PAGE}&page={page}&exclude_pull_requests=true"
-        payload = rest("GET", f"repos/{home}/actions/workflows/{runner_workflow()}/runs{query}")
+        payload = rest(
+            "GET", f"repos/{home}/actions/workflows/{runner_workflow()}/runs{query}"
+        )
         runs = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
         found.extend(item for item in runs if _title(item).startswith(marker))
         if len(runs) < RUNS_PER_PAGE:
@@ -180,7 +186,11 @@ def cancel_run(repo: str, run_id: int) -> bool:
 def list_runners(repo: str) -> list[dict[str, Any]]:
     payload = rest("GET", f"repos/{repo}/actions/runners?per_page=100") or {}
     runners = payload.get("runners", []) if isinstance(payload, dict) else []
-    return [item for item in runners if str(item.get("name", "")).startswith(RUNNER_NAME_PREFIX)]
+    return [
+        item
+        for item in runners
+        if str(item.get("name", "")).startswith(RUNNER_NAME_PREFIX)
+    ]
 
 
 def delete_runner(repo: str, runner_id: int) -> bool:

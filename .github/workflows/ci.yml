@@ -4,25 +4,33 @@ on: push
 
 jobs:
   qa:
+    # Не nested: этот репозиторий и есть nested-раннер, его CI не должен
+    # зависеть от самого себя.
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [ruff, format, pyright, pytest]
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v7
+      - uses: wprhvso/qa-python@v1
         with:
-          python-version: "3.13"
+          checks: ${{ matrix.check }}
 
-      - uses: extractions/setup-just@v4
+  workflows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
 
       - name: Install tools
         run: |
           set -euo pipefail
-          pip install --disable-pip-version-check --quiet yamllint ruff basedpyright
+          pip install --disable-pip-version-check --quiet yamllint
           bash <(curl -fsSL --retry 3 --retry-all-errors \
             https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           echo "$PWD" >> "$GITHUB_PATH"
 
-      - name: QA
-        run: just qa
+      - run: yamllint .github/workflows
+      - run: actionlint -color

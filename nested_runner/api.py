@@ -211,7 +211,9 @@ class ScaleSetApi:
             return
         log.info("закрыл message session %s", session.session_id)
 
-    def reopen_session(self, scale_set_id: int, session: Session | None, owner: str) -> Session:
+    def reopen_session(
+        self, scale_set_id: int, session: Session | None, owner: str
+    ) -> Session:
         if session is not None:
             try:
                 self.close_session(scale_set_id, session)
@@ -222,7 +224,9 @@ class ScaleSetApi:
         except HttpError as exc:
             if exc.status != _CONFLICT:
                 raise
-            log.warning("на scale set висит активная сессия, жду %s с", SESSION_CONFLICT_WAIT)
+            log.warning(
+                "на scale set висит активная сессия, жду %s с", SESSION_CONFLICT_WAIT
+            )
             time.sleep(SESSION_CONFLICT_WAIT)
             return self.open_session(scale_set_id, owner)
 
@@ -267,7 +271,9 @@ class ScaleSetApi:
             return []
         return raw.get("value", []) if isinstance(raw, dict) else raw
 
-    def acquire_jobs(self, scale_set_id: int, session: Session, request_ids: list[int]) -> int:
+    def acquire_jobs(
+        self, scale_set_id: int, session: Session, request_ids: list[int]
+    ) -> int:
         # Одна пачка на все job'ы вместо запроса на каждую.
         if not request_ids:
             return 0

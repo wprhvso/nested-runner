@@ -7,4 +7,6 @@ _OPAQUE_PATTERN = re.compile(r"(githubusercontent\.com/)[^/]+")
 
 
 def redact(text: str) -> str:
-    return _OPAQUE_PATTERN.sub(r"\1<opaque>", _SESSION_PATTERN.sub(r"\1<session>", text))
+    return _OPAQUE_PATTERN.sub(
+        r"\1<opaque>", _SESSION_PATTERN.sub(r"\1<session>", text)
+    )
