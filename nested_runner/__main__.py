@@ -6,7 +6,14 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
-from nested_runner.config import REPO_PATTERN, RESTART_CAP, RESTART_HEALTHY, debug
+from nested_runner.budget import REST
+from nested_runner.config import (
+    RATE_WAIT_CAP,
+    REPO_PATTERN,
+    RESTART_CAP,
+    RESTART_HEALTHY,
+    debug,
+)
 from nested_runner.controller import install_stop_handler, run
 from nested_runner.errors import NestedError
 from nested_runner.http import backoff
@@ -44,8 +51,18 @@ def _worker(repo: str, stop: threading.Event, results: dict[str, int]) -> None:
         if time.monotonic() - started >= RESTART_HEALTHY:
             failures = 0
         failures += 1
-        delay = backoff(failures, cap=RESTART_CAP)
-        log.warning("перезапуск через %.1f с (сбой %s подряд)", delay, failures)
+
+        waiting = REST.shut()
+        if waiting:
+            # Перезапуск не лечит выбранный лимит — он его доедает: старт
+            # заново проверяет права, ветку и запуски. Ждём окно, а не бэкофф.
+            delay = min(waiting, RATE_WAIT_CAP)
+            log.warning(
+                "лимит REST закрыт, старт через %.0f с — %s", delay, REST.state()
+            )
+        else:
+            delay = backoff(failures, cap=RESTART_CAP)
+            log.warning("перезапуск через %.1f с (сбой %s подряд)", delay, failures)
         if stop.wait(delay):
             return
 

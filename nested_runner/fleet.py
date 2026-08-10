@@ -37,6 +37,18 @@ class Fleet:
             self._forget()
             return max(0, len(self._alive) + len(self._unseen) - self._retired)
 
+    def tracking(self) -> bool:
+        """Есть ли что сверять.
+
+        Запуски раннеров заводим только мы, так что пока флот пуст и ни одного
+        диспатча в воздухе нет, список запусков в API измениться не может —
+        и спрашивать его незачем. Один этот отказ снимает с лимита весь
+        холостой ход контроллера.
+        """
+        with self._lock:
+            self._forget()
+            return bool(self._alive or self._unseen)
+
     def _forget(self) -> None:
         stale = time.monotonic() - FLEET_TTL
         self._unseen = [at for at in self._unseen if at >= stale]
