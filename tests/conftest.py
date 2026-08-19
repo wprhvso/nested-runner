@@ -10,8 +10,6 @@ from nested_runner import http as http_mod
 
 
 class Clock:
-    """Ручные часы: и monotonic, и стенные, чтобы epoch-заголовки сходились."""
-
     def __init__(self, start: float = 1000.0, wall: float = 1_700_000_000.0) -> None:
         self.now = start
         self.wall = wall

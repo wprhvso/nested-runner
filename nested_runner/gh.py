@@ -42,11 +42,9 @@ _REST_HEADERS = {
 }
 _GONE = 409
 
-# ETag на каждый опрашиваемый URL плюс уже отжатый из него результат.
 _STORE: dict[str, tuple[str, Any]] = {}
 _STORE_LOCK = threading.Lock()
 
-# Когда в последний раз проверяли пару (цель, home).
 _CHECKED: dict[tuple[str, str], float] = {}
 
 
@@ -97,16 +95,6 @@ def rest(method: str, path: str, *, body: object = None, attempts: int = 3) -> A
 
 
 def polled[T](path: str, tag: str, pick: Callable[[Any], T]) -> T:
-    """GET, который платит за изменения, а не за опрос.
-
-    Условный запрос GitHub в лимит не засчитывает, если ответил 304, — значит
-    один и тот же список можно крутить сколько угодно, пока он не поменялся.
-    В памяти держим уже отжатое значение, а не сырой ответ: страница запусков
-    весит мегабайты, а нужны из неё идентификаторы.
-
-    tag разделяет потребителей одного URL: страницы запусков у всех целей
-    общие, а отжатое из них — у каждой своё.
-    """
     url = _url(path)
     key = f"{tag} {url}"
     with _STORE_LOCK:
@@ -132,14 +120,11 @@ def polled[T](path: str, tag: str, pick: Callable[[Any], T]) -> T:
 
 
 def _reachable(_: Any) -> None:
-    """Проба: важно, что запрос не упал, а не что он вернул."""
     return
 
 
 @functools.cache
 def current_repo() -> str:
-    # За жизнь процесса home-репо не меняется, а gh repo view — это и лишний
-    # процесс, и лишний запрос из того же лимита.
     fallback = home_repo()
     if home_repo_configured():
         return fallback
@@ -169,20 +154,12 @@ def preflight(repo: str, home: str) -> None:
     log.debug("публичный ключ: %s", recipient())
 
     if _fresh_enough(repo, home):
-        # Контроллер перезапускается на каждом сбое, а права и workflow за это
-        # время не меняются. Гонять пробы заново на каждом круге — ровно тот
-        # расход, из-за которого лимит и кончается.
         log.debug("проверки на старте ещё свежие, не повторяю")
         return
 
-    # Проверяем до gh auth status: он тоже ходит в API, только под капотом,
-    # и в закрытое окно упрётся ровно так же — а его отказ выглядел бы как
-    # сломанный токен.
     guard(REST, api_base())
     gh("auth", "status")
 
-    # Пробы идут тем же путём, которым потом пойдёт горячий цикл, и условными
-    # запросами: со второго раза они не стоят лимита.
     polled(
         f"repos/{home}/actions/workflows/{runner_workflow()}", "workflow", _reachable
     )
@@ -190,7 +167,6 @@ def preflight(repo: str, home: str) -> None:
     try:
         polled(f"repos/{repo}/actions/runners?per_page=1", "права", _reachable)
     except RateLimited:
-        # Это не про права: ждать окно, а не переучивать пользователя.
         raise
     except NestedError:
         raise NestedError(
@@ -242,8 +218,6 @@ def _page(payload: Any, marker: str) -> _Page:
 
 
 def list_runs(home: str, target: str, status: str) -> list[int]:
-    # Страницы обходим: в home-репо живут запуски всех целей, и обрезать
-    # список до фильтра значит потерять свои же живые раннеры.
     marker = f"nested {target} "
 
     def pick(payload: Any) -> _Page:
@@ -273,7 +247,6 @@ def dispatch(home: str, target: str, jit: str, branch: str) -> bool:
             attempts=DISPATCH_ATTEMPTS,
         )
     except RateLimited as exc:
-        # Не сбой, а очередь за лимитом: раннер поедет, когда окно откроется.
         log.warning("диспатч %s отложен: %s", workflow, exc)
         return False
     except NestedError as exc:

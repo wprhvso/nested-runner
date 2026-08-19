@@ -33,25 +33,16 @@ log = logging.getLogger("nested")
 _FALLBACK_TTL = 1800.0
 _TOO_MANY = 429
 
-# Сигнал остановки, общий на процесс: любой сон внутри HTTP-слоя обязан от него
-# просыпаться, иначе SIGTERM ждёт конца самого длинного бэкоффа, а grace period
-# у контейнера короче.
 STOP = threading.Event()
 
 
 def pause(seconds: float) -> bool:
-    """Сон, который прерывает остановка. True — остановка объявлена."""
     if seconds <= 0:
         return STOP.is_set()
     return STOP.wait(seconds)
 
 
 def guard(budget: Budget, url: str) -> None:
-    """Отказать заранее, если лимит закрыт.
-
-    Ломиться в закрытую дверь — верный способ получить сверху ещё и вторичный
-    лимит, поэтому отказ выдаём не выходя в сеть.
-    """
     waiting = budget.shut()
     if waiting:
         raise RateLimited(_TOO_MANY, url, "лимит ещё не сбросился", waiting)
@@ -94,8 +85,6 @@ def fetch(
     if auth:
         headers["Authorization"] = auth
     if etag:
-        # Условный запрос. Если ничего не поменялось, GitHub отвечает 304 и
-        # лимит за это не списывает — опрос обходится бесплатно.
         headers["If-None-Match"] = etag
 
     if budget is not None:
@@ -140,8 +129,6 @@ def fetch(
         log.debug("повтор %s %s через %.1f с (%s)", method, redact(url), delay, last)
         stopping = pause(delay)
         if stopping and hurried:
-            # Нас остановили. Одну попытку сверх этого делаем сразу — уборке
-            # нужна связь, — но растягивать бэкофф уже нельзя.
             break
         hurried = hurried or stopping
 

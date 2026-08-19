@@ -47,8 +47,6 @@ class ScaleSetApi:
             self._fetch_token()
 
     def _fetch_token(self) -> None:
-        # Единственная точка, где pipeline API оплачивается REST-лимитом:
-        # и registration token, и сама регистрация идут на api.github.com.
         info = request(
             "POST",
             f"{api_base()}/actions/runner-registration",

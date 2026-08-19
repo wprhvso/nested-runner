@@ -68,8 +68,6 @@ class Ctx:
 
 
 def install_stop_handler() -> threading.Event:
-    # Тот же самый Event, на котором спит HTTP-слой: иначе сигнал приходится
-    # ждать столько, сколько длится самый долгий бэкофф внутри запроса.
     stop = STOP
 
     def handler(signum: int, _frame: FrameType | None) -> None:
@@ -178,9 +176,6 @@ def _scale(ctx: Ctx, stats: Stats, note: str, taken: int = 0) -> None:
 
         waiting = REST.shut()
         if waiting:
-            # Диспатч — это REST, и пока окно закрыто, восемь параллельных
-            # попыток дадут восемь 403 и ни одного раннера. Job'ы подождут
-            # в очереди: она на другом хосте и от лимита не зависит.
             log.warning(
                 "нужно раннеров %s, но лимит REST закрыт ещё %.0f с (%s)",
                 need,
@@ -267,7 +262,6 @@ def _reconcile(ctx: Ctx) -> None:
 
 
 def _worth_it(ctx: Ctx) -> bool:
-    """Стоит ли платить за список запусков прямо сейчас."""
     if not ctx.fleet.tracking():
         return False
     if REST.spend(f"сверка {ctx.repo}", len(RUN_STATUSES)):
@@ -290,11 +284,6 @@ def _reconcile_loop(ctx: Ctx, stop: threading.Event) -> None:
         try:
             if _worth_it(ctx):
                 _reconcile(ctx)
-            # Решение принимаем каждый круг, даже когда список запусков решили
-            # не спрашивать: статистика приходит из pipeline API, у которого
-            # своего лимита нет. Ёмкость меняется и без нас — догорел запуск,
-            # умер диспатч, — а главный цикл в это время спит в long poll, и
-            # без решения тут job простоял бы до конца окна опроса.
             _scale(ctx, ctx.api.statistics(ctx.scale_set_id), "сверка")
         except RateLimited as exc:
             log.debug("сверка ждёт сброса лимита: %s", exc)
@@ -328,8 +317,6 @@ def _recover(
 
 
 def _hold(exc: RateLimited, stop: threading.Event) -> None:
-    # Окно ждём целиком, но кусками: проспать час одним махом значит не заметить
-    # ни остановки, ни того, что лимит открылся раньше обещанного.
     waiting = min(max(exc.retry_in, 1.0), RATE_WAIT_CAP)
     log.warning("лимит REST выбран, жду %.0f с — %s", waiting, REST.state())
     stop.wait(waiting)
@@ -363,9 +350,6 @@ def _tick(ctx: Ctx, session: Session, last_id: int, stop: threading.Event) -> in
 
 
 def _cleanup(ctx: Ctx, session: Session | None) -> None:
-    # Сначала бесплатное и главное. Сессия и scale set живут в pipeline API,
-    # REST-лимит их не трогает, а без scale set живые раннеры всё равно ничего
-    # не возьмут — это и есть основная часть уборки.
     if session is not None:
         try:
             ctx.api.close_session(ctx.scale_set_id, session)
@@ -381,9 +365,6 @@ def _cleanup(ctx: Ctx, session: Session | None) -> None:
 
     waiting = REST.shut()
     if waiting:
-        # Гасить запуски нечем: лимит выбран, и полсотни заведомо отказанных
-        # запросов ничего не изменят. Раннеры эфемерные и упрутся в свой
-        # timeout-minutes сами.
         log.warning(
             "лимит REST закрыт ещё %.0f с — запуски и раннеров не подчищаю "
             "(scale-set-removed=%s), они догорят сами",
@@ -481,10 +462,6 @@ def run(repo: str, stop: threading.Event) -> int:
                 failures = 0
 
             except RateLimited as exc:
-                # Сбоем это не считаем и сессию не трогаем: очередь job'ов
-                # живёт на другом хосте и про REST-лимит ничего не знает.
-                # Рвать её тут значит платить за пересоздание теми запросами,
-                # которых как раз и не осталось.
                 failures = 0
                 _hold(exc, stop)
 
@@ -498,8 +475,6 @@ def run(repo: str, stop: threading.Event) -> int:
                 if reset >= 0:
                     last_id = reset
                 if failures > 1:
-                    # Штатное протухание токена лечим сразу, но заклинившую
-                    # сессию перестаём дёргать без передышки.
                     stop.wait(backoff(failures))
 
             except NestedError as exc:

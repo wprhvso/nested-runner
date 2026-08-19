@@ -18,12 +18,6 @@ class HttpError(NestedError):
 
 
 class RateLimited(HttpError):
-    """Лимит GitHub выбран: до сброса окна в API ходить бесполезно.
-
-    Отдельный тип затем, что лечится он не так, как остальные ошибки: повтор,
-    пересоздание сессии и перезапуск контроллера тут только жгут остаток.
-    """
-
     def __init__(self, status: int, url: str, body: str, retry_in: float) -> None:
         self.retry_in: float = retry_in
         super().__init__(status, url, body)

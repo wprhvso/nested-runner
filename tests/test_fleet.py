@@ -13,11 +13,9 @@ def test_a_dispatch_makes_the_sweep_worth_it() -> None:
     fleet.born()
     assert fleet.tracking() is True
 
-    # Диспатч доехал — запуск виден, сверять по-прежнему есть что.
     fleet.observe({7})
     assert fleet.tracking() is True
 
-    # Запуск догорел, ничего не осталось: следующий круг платить не за что.
     fleet.observe(set())
     assert fleet.tracking() is False
 

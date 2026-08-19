@@ -48,13 +48,10 @@ def test_304_serves_the_stored_result(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert gh_mod.default_branch("owner/x") == "main"
     assert gh_mod.default_branch("owner/x") == "main"
-    # Второй раз ушёл условным — GitHub такой ответ в лимит не пишет.
     assert made.seen[1][1] == '"tag"'
 
 
 def test_one_url_two_tags_do_not_collide(monkeypatch: pytest.MonkeyPatch) -> None:
-    # preflight и default_branch спрашивают один и тот же repos/{repo},
-    # но отжимают из него разное.
     made = _answer(monkeypatch, Reply(200, {"default_branch": "main"}, '"tag"'))
 
     assert gh_mod.default_branch("owner/x") == "main"
@@ -158,7 +155,6 @@ def test_closed_limit_short_circuits_preflight(
     with pytest.raises(RateLimited):
         gh_mod.preflight("owner/x", "owner/home")
 
-    # Ни одного запроса, включая тот, что gh делает под капотом в auth status.
     assert spawned == []
     assert made.seen == []
 
@@ -171,8 +167,6 @@ def test_only_our_runners_come_back(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_headers_helper_is_case_insensitive() -> None:
-    # Заголовки лимита приходят в нижнем регистре по HTTP/2 — бюджет обязан
-    # находить их в любом.
     budget = Budget()
     budget.observe(headers(x_ratelimit_remaining="7"))
     assert "остаток 7" in budget.state()

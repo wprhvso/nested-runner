@@ -49,7 +49,6 @@ def test_etag_goes_out_and_304_comes_back_free(calls, clock: Clock) -> None:
     assert reply.status == NOT_MODIFIED
     assert reply.etag == '"abc"'
     assert made.seen[0].get_header("If-none-match") == '"abc"'
-    # 304 лимит не тратит — и шлюз от него не закрывается.
     assert budget.shut() == 0.0
 
 
@@ -80,8 +79,6 @@ def test_rate_limited_answer_becomes_rate_limited_error(calls, clock: Clock) -> 
         http_mod.fetch("GET", "https://api.github.com/x", budget=budget, attempts=5)
 
     assert caught.value.retry_in == 90
-    # Ни одного повтора: молотить закрытую дверь и есть тот расход, от которого
-    # лимит не восстанавливается.
     assert len(made.seen) == 1
     assert budget.shut() == 90
 
@@ -120,13 +117,10 @@ def test_stop_cuts_the_retry_ladder_short(calls) -> None:
     with pytest.raises(NestedError):
         http_mod.fetch("GET", "https://api.github.com/x", attempts=5)
 
-    # Одна попытка сверх замеченной остановки — уборке нужна связь, — и всё:
-    # досиживать бэкофф до конца grace period нельзя.
     assert len(made.seen) == 2
 
 
 def test_pipeline_calls_stay_out_of_the_rest_budget(calls, clock: Clock) -> None:
-    # У pipeline API свой лимит; его 429 лечится повтором, а не ожиданием окна.
     made = calls(http_error(429, b"", Retry_After="0"), Response(body=b"{}"))
 
     assert http_mod.request("GET", "https://pipelines.example/x", attempts=3) == {}

@@ -38,13 +38,6 @@ class Fleet:
             return max(0, len(self._alive) + len(self._unseen) - self._retired)
 
     def tracking(self) -> bool:
-        """Есть ли что сверять.
-
-        Запуски раннеров заводим только мы, так что пока флот пуст и ни одного
-        диспатча в воздухе нет, список запусков в API измениться не может —
-        и спрашивать его незачем. Один этот отказ снимает с лимита весь
-        холостой ход контроллера.
-        """
         with self._lock:
             self._forget()
             return bool(self._alive or self._unseen)

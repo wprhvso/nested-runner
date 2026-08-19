@@ -54,8 +54,6 @@ def _worker(repo: str, stop: threading.Event, results: dict[str, int]) -> None:
 
         waiting = REST.shut()
         if waiting:
-            # Перезапуск не лечит выбранный лимит — он его доедает: старт
-            # заново проверяет права, ветку и запуски. Ждём окно, а не бэкофф.
             delay = min(waiting, RATE_WAIT_CAP)
             log.warning(
                 "лимит REST закрыт, старт через %.0f с — %s", delay, REST.state()
