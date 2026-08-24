@@ -2,82 +2,79 @@ name: cd
 
 on:
   push:
-    tags:
-      - "v*"
-
-permissions: {}
+    branches:
+      - main
 
 jobs:
-  image:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  version:
+    runs-on: pool
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      release: ${{ steps.read.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
+      - id: read
+        run: |
+          version=$(python3 -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+          test "$version" = "$(cat VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  image:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: pool
     permissions:
       contents: read
       packages: write
-
     steps:
       - uses: actions/checkout@v7
-
       - uses: docker/setup-qemu-action@v3
-
       - uses: docker/setup-buildx-action@v3
-
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ needs.version.outputs.version }}
+            ghcr.io/${{ github.repository }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   pypi:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    needs: [version, image]
+    if: needs.version.outputs.release == 'true'
+    runs-on: pool
     environment: pypi
-
     permissions:
       contents: read
       id-token: write
-
     steps:
       - uses: actions/checkout@v7
+      - run: uv build
+      - run: uv publish --trusted-publishing always
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-
-      - name: Check version matches tag
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          [ "$TAG" = "v$(cat VERSION)" ] || { echo "тег $TAG не совпадает с VERSION" >&2; exit 1; }
-
-      - name: Build
-        run: |
-          set -euo pipefail
-          pip install --disable-pip-version-check --quiet build
-          python -m build
-
-      - uses: pypa/gh-action-pypi-publish@release/v1
+  tag:
+    needs: [version, image, pypi]
+    if: needs.version.outputs.release == 'true'
+    runs-on: pool
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          git tag "v${{ needs.version.outputs.version }}"
+          git push origin "v${{ needs.version.outputs.version }}"

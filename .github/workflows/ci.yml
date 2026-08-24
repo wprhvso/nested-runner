@@ -1,33 +1,38 @@
 name: ci
 
-on: push
+on:
+  push:
 
 jobs:
-  python:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        check: [ruff, format, pyright, pytest]
+  ruff:
+    runs-on: pool
     steps:
       - uses: actions/checkout@v7
-      - uses: wprhvso/qa-python@v1
-        with:
-          checks: ${{ matrix.check }}
+      - run: ruff check --output-format github .
 
-  nix:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  format:
+    runs-on: pool
     steps:
       - uses: actions/checkout@v7
-      - uses: wprhvso/qa-nix@v1
-        with:
-          checks: fmt,statix,deadnix,flake
+      - run: ruff format --check --diff .
 
-  shell:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  pyright:
+    runs-on: pool
     steps:
       - uses: actions/checkout@v7
-      - uses: wprhvso/qa-shell@v1
+      - run: uv sync --frozen
+      - run: basedpyright
+
+  pytest:
+    runs-on: pool
+    steps:
+      - uses: actions/checkout@v7
+      - run: uv sync --frozen
+      - run: echo "$PWD/.venv/bin" >>"$GITHUB_PATH"
+      - run: pytest
+
+  flake:
+    runs-on: pool
+    steps:
+      - uses: actions/checkout@v7
+      - run: nix flake check -L
